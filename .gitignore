@@ -46,6 +46,40 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
+# ============================================================
+# 课程设计过程文档：仅本地保留，不随仓库分发
+#
+# ⚠️ 每行开头的 / 不能删。它表示「只匹配仓库根目录」。
+#    若写成 docs/，会连带排除：
+#      pdf_system/docs/               架构、数据库、契约 C1–C5
+#      pdf_ocr_module/ocr_service/docs/ API、MySQL DDL、OpenAPI
+#    这两处是与代码强相关的文档，必须保留。
+# ============================================================
+# 需求分析文档
+/docs/
+# UML 用例图 / 类图 / 时序图（puml 源文件与导出图）
+/uml/
+# PlantUML 工具
+/tools/
+# 课程报告
+/题目和功能简述/
+# 课程设计要求 PPT
+/SE-课程设计要求-2026.pptx
+# 需求大纲与图例规范
+/需求文档大纲.md
+/图例绘制规格.md
+# 交付包，与 pdf_ocr_module/ 源码重复
+/pdf_ocr_module.zip
+
+# Office 临时锁文件与成品文档
+~$*.docx
+~$*.pptx
+*.pptx
+*.ppt
+*.docx
+*.doc
+*.xlsx
+
 # ---- 通用（取自 GitHub Python 模板，按需保留）----
 *.so
 .Python
