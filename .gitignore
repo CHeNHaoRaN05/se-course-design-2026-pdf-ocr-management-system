@@ -68,6 +68,10 @@ Thumbs.db
 /图例绘制规格.md
 # 交付包，与 pdf_ocr_module/ 源码重复
 /pdf_ocr_module.zip
+# 本地个人启动脚本（各人路径不同，不入库）
+/start_dev.bat
+/start_dev.ps1
+/start_dev.sh
 
 # Word / PowerPoint 打开文档时生成的临时锁文件
 ~$*.docx
