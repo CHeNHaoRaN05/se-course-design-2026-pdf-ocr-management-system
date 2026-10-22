@@ -1,0 +1,62 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 虚拟环境 ----
+.venv/
+.venv-paddle/
+.venv-torch/
+venv/
+env/
+
+# ---- 本机数据、密钥、缓存（严禁入库）----
+pdf_system/data/
+pdf_ocr_module/ocr_data/
+*.sqlite3
+*.sqlite3-journal
+.env
+*.key
+
+# ---- 模型权重（text_recognizer 204.7 MB，超 GitHub 单文件 100 MB 硬限制）----
+# 不随仓库分发；按 ocr_service/models/manifest.json 的 URL 下载并校验 SHA256：
+#   python -m ocr_service download-models
+pdf_ocr_module/ocr_service/models/*.pdparams
+pdf_ocr_module/ocr_service/models/*.download
+pdf_ocr_module/ocr_service/models/*.pdmodel
+pdf_ocr_module/ocr_service/models/*.pdiparams
+
+# ---- 构建与验证产物 ----
+.verification/
+dist/
+*.egg-info/
+
+# ---- 前端 ----
+frontend/node_modules/
+frontend/dist/
+.vite/
+
+# ---- 编辑器与系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- 通用（取自 GitHub Python 模板，按需保留）----
+*.so
+.Python
+*.log
+pip-log.txt
+.coverage
+coverage.xml
+htmlcov/
+*.mo
+*.pot
+
+# ⚠️ 刻意不加 `build/`：本仓库根目录的 build/ 是需求文档生成脚本
+#    （doc_part1.py … make_docx.py），属源码而非构建产物。
+#    若从 GitHub 模板复制 .gitignore，务必删掉其中的 build/ 一行。

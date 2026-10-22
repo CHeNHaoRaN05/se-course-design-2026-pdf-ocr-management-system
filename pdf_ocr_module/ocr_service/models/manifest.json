@@ -1,0 +1,12 @@
+{
+  "detector": {
+    "file": "text_detector.pdparams",
+    "url": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_mobile_det_pretrained.pdparams",
+    "sha256": "7e2e3b0bd5bbdcb0b842cb92aaacc2852f80299a4858b8767a45bd0c6e955648"
+  },
+  "recognizer": {
+    "file": "text_recognizer.pdparams",
+    "url": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_server_rec_pretrained.pdparams",
+    "sha256": "8ce5dfc1294af6ee680d562841a9909257d6a9a9242387c2e8dc50ea8f647143"
+  }
+}

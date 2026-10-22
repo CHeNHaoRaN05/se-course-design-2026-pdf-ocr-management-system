@@ -1,0 +1,51 @@
+# ============================================================
+# 代码所有权（GitHub 会据此自动指派 reviewer）
+#
+#    陈浩然（组长，01 线）  @CHeNHaoRaN05
+#    岳浩睿（02 线）        @zhimengshusi
+#    黄俞富（03 线）        @smile1810
+#
+# 仓库：CHeNHaoRaN05/se-course-design-2026-pdf-ocr-management-system
+# ============================================================
+
+# ---- 共享底座：仅陈可合并，其余两人改动需其 review ----
+/backend/core/                @chenhaoran
+/backend/main.py              @chenhaoran
+/backend/scripts/             @chenhaoran
+/frontend/src/app/            @chenhaoran
+/frontend/src/shared/         @chenhaoran
+/frontend/src/main.tsx        @chenhaoran
+/frontend/src/App.tsx         @chenhaoran
+/frontend/src/styles.css      @chenhaoran
+
+# ---- 数据模型：按线分，但 __init__.py 由陈仲裁 ----
+/backend/models/base.py       @chenhaoran
+/backend/models/__init__.py   @chenhaoran
+/backend/models/user.py       @chenhaoran
+/backend/models/quota.py      @chenhaoran
+/backend/models/audit.py      @chenhaoran
+/backend/models/file.py       @yuehaorui
+/backend/models/reader.py     @yuehaorui
+
+# ---- 01 线：用户与权限 ----
+/backend/modules/auth/        @chenhaoran
+/backend/modules/quota/       @chenhaoran
+/frontend/src/features/auth/  @chenhaoran
+
+# ---- 02 线：文件管理与阅读器 ----
+/backend/modules/files/       @yuehaorui
+/backend/modules/reader/      @yuehaorui
+/frontend/src/features/files/ @yuehaorui
+/frontend/src/features/reader/ @yuehaorui
+
+# ---- 03 线：OCR 与检索 ----
+/backend/modules/ocr/         @huangyufu
+/backend/modules/search/      @huangyufu
+/frontend/src/features/ocr/   @huangyufu
+/frontend/src/features/search/ @huangyufu
+/pdf_ocr_module/              @huangyufu
+
+# ---- 文档与契约：三人共管，任一改动需全体确认 ----
+/docs/                         @chenhaoran @yuehaorui @huangyufu
+/README.md                     @chenhaoran @yuehaorui @huangyufu
+/.github/                      @chenhaoran

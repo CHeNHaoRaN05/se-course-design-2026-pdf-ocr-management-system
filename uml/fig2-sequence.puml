@@ -1,0 +1,246 @@
+' ==========================================================
+' 图 2-8a  文件上传与任务创建顺序图
+' ==========================================================
+@startuml 图2-8a_上传与建任务顺序图
+title 图2-8a  文件上传与任务创建顺序图
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam ParticipantBackgroundColor #EAF2F8
+skinparam ParticipantBorderColor #5D6D7E
+skinparam SequenceGroupBackgroundColor #FDFEFE
+skinparam NoteBackgroundColor #FCF3CF
+
+autonumber
+
+actor 用户 as USER
+participant "Web 前端" as FE
+participant "API 服务" as API
+database "MySQL 8" as DB
+participant "本地存储" as FS
+
+group 阶段一：上传文件
+  USER -> FE : 选择本地 PDF
+  FE -> API : POST /files (multipart, Bearer JWT)
+  activate API
+  API -> API : 校验 token 与 role ≠ viewer
+  API -> FS : 写入文件，生成 storage_key
+  API -> DB : INSERT ocr_files (sha256, size, page_count)
+  API --> FE : 201 FileOut(file_id, page_count)
+  deactivate API
+  FE --> USER : 列表出现新文件，状态=待识别
+end
+
+group 阶段二：创建识别任务
+  USER -> FE : 选择页码范围与识别选项
+  FE -> API : POST /jobs {file_id, pages, options}
+  activate API
+  API -> DB : 条件 UPDATE ocr_files\nSET active_job_id, generation+1\nWHERE active_job_id IS NULL
+  alt 存在活动任务
+    API --> FE : 409 E_JOB_ACTIVE
+    FE --> USER : 提示任务进行中
+  else 可建任务
+    API -> API : before_enqueue 预留页数配额（同事务）
+    alt 配额不足
+      API --> FE : 429 E_QUOTA_EXCEEDED
+      FE --> USER : 引导缩减页数或调整配额
+    else 配额充足
+      API -> DB : INSERT ocr_jobs (queued)\nINSERT ocr_pages (pending)
+      API -> DB : INSERT ocr_audit_log (job_created)
+      API --> FE : 202 JobOut(job_id, queued)
+      FE --> USER : 进入任务详情页并开始轮询
+    end
+  end
+  deactivate API
+end
+@enduml
+
+
+' ==========================================================
+' 图 2-8b  Worker 执行与结果回写顺序图
+' ==========================================================
+@startuml 图2-8b_Worker执行与回写顺序图
+title 图2-8b  Worker 执行与结果回写顺序图
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam ParticipantBackgroundColor #EAF2F8
+skinparam ParticipantBorderColor #5D6D7E
+skinparam SequenceGroupBackgroundColor #FDFEFE
+skinparam NoteBackgroundColor #FCF3CF
+
+autonumber 15
+
+participant "Web 前端" as FE
+participant "API 服务" as API
+database "MySQL 8" as DB
+participant "OCR Worker" as WK
+participant "PaddleOCR" as OCR
+participant "本地存储" as FS
+
+group 阶段三：Worker 异步执行
+  loop 每 5 秒轮询就绪任务
+    WK -> DB : SELECT status IN (queued, retry_wait) AND available_at <= now
+    DB --> WK : 候选 Job
+    WK -> DB : 条件 UPDATE status=running,\nattempts+1, lease_token, lease_until
+  end
+  WK -> FS : 读取原文件
+  FS --> WK : 文件字节流
+  loop 每一页
+    WK -> FS : PDFium 渲染第 N 页
+    FS --> WK : 页图
+    WK -> OCR : 文本检测 det
+    OCR --> WK : 文字框坐标
+    WK -> OCR : 逐框识别 rec + CTC 解码
+    OCR --> WK : 文本 + 置信度
+    WK -> WK : 阅读顺序重排 / 可选表格还原
+    WK -> DB : UPDATE ocr_pages (succeeded)\n同事务 upsert pdf_text_index
+  end
+  loop 每 40 秒
+    WK -> DB : 续租 lease_until（校验 lease_token）
+  end
+  WK -> DB : complete_attempt：写终态并释放 active_job_id
+  note right of DB : 仅接受持有匹配 lease_token 且未过期的提交
+end
+
+group 阶段四：结果展示
+  loop 轮询直到终态
+    FE -> API : GET /jobs/{job_id}
+    API -> DB : 查询状态与页级进度
+    API --> FE : JobOut(status, 页统计)
+    FE --> FE : 显示进度 / 失败页码
+  end
+  FE -> API : GET /jobs/{job_id}/pages 或 /export?format=json
+  API --> FE : 页结果或导出文件流
+end
+@enduml
+
+
+' ==========================================================
+' 图 2-9  识别结果校对与并发冲突顺序图
+' ==========================================================
+@startuml 图2-9_校对与并发冲突顺序图
+title 图2-9  识别结果校对与并发冲突顺序图
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam ParticipantBackgroundColor #EAF2F8
+skinparam ParticipantBorderColor #5D6D7E
+skinparam SequenceGroupBackgroundColor #FDFEFE
+skinparam NoteBackgroundColor #FCF3CF
+
+autonumber
+
+actor "用户 A" as A
+actor "用户 B" as B
+participant "Web 前端" as FE
+participant "API 服务" as API
+database "MySQL 8" as DB
+database "pdf_text_index" as IDX
+
+A -> FE : 打开第 12 页校对界面
+B -> FE : 同时打开第 12 页
+FE -> API : GET /jobs/{id}/pages/12
+API -> DB : SELECT page (revision = 3)
+API --> FE : 页结果 + revision=3
+FE --> A : 显示原图与识别框
+FE --> B : 显示原图与识别框
+
+group B 先提交，成功
+  B -> FE : 修改 3 个识别框并保存
+  FE -> API : PATCH /pages/12 {expected_revision:3, result}
+  API -> DB : UPDATE ... WHERE revision = 3
+  DB --> API : 影响行数 = 1
+  API -> DB : SET revision = 4
+  API --> FE : 200 更新结果 (revision=4)
+  FE --> B : 保存成功
+end
+
+group A 后提交，版本冲突
+  A -> FE : 修改另一识别框并保存
+  FE -> API : PATCH /pages/12 {expected_revision:3, result}
+  API -> DB : UPDATE ... WHERE revision = 3
+  DB --> API : 影响行数 = 0（当前为 4）
+  API --> FE : 409 E_REVISION_CONFLICT + 最新 revision=4
+  FE --> A : 提示已被他人更新，展示差异
+  A -> FE : 重新加载并合并本地修改
+  FE -> API : PATCH /pages/12 {expected_revision:4, result}
+  API -> DB : UPDATE ... WHERE revision = 4
+  API -> IDX : 同事务更新 pdf_text_index.content
+  API --> FE : 200 更新结果 (revision=5)
+  FE --> A : 保存成功，检索同步生效
+end
+
+note over API, DB
+  校对仅限 owner 或 admin，viewer 返回 403；
+  任务未结束时不允许保存。
+end note
+@enduml
+
+
+' ==========================================================
+' 图 2-10  分享链接访问顺序图
+' ==========================================================
+@startuml 图2-10_分享链接访问顺序图
+title 图2-10  分享链接访问顺序图
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam ParticipantBackgroundColor #EAF2F8
+skinparam ParticipantBorderColor #5D6D7E
+skinparam SequenceGroupBackgroundColor #FDFEFE
+skinparam NoteBackgroundColor #FCF3CF
+
+autonumber
+
+actor "文件拥有者" as OWN
+participant "Web 前端" as FE
+participant "API 服务" as API
+database "MySQL 8" as DB
+database "本地存储" as FS
+actor "游客" as GUEST
+
+OWN -> FE : 点击“生成分享链接”
+FE -> API : POST /shares {file_id, expires_in, allow_download}
+API -> DB : INSERT share_link (token, expires_at, allow_download)
+API --> FE : 201 分享 URL
+FE --> OWN : 复制链接
+
+GUEST -> FE : 打开分享 URL
+FE -> API : GET /share/{token}
+alt 令牌有效且未撤销
+  API -> DB : 校验有效期与 revoked 标记
+  DB --> API : 命中 file_id
+  API -> FS : 只读读取原文件
+  FS --> API : 文件流
+  API -> DB : visit_count+1 并写 ocr_audit_log
+  API --> FE : 200 只读文件流
+  FE --> GUEST : 只读浏览（禁止下载时隐藏按钮）
+else 令牌过期或已撤销
+  DB --> API : 无有效记录
+  API --> FE : 410 Gone
+  FE --> GUEST : 显示“链接已失效”
+end
+
+OWN -> FE : 取消分享
+FE -> API : DELETE /share/{token}
+API -> DB : UPDATE share_link SET revoked=1
+API --> FE : 200 已撤销
+FE --> OWN : 链接立即不可用
+@enduml

@@ -1,0 +1,45 @@
+Global:
+  infer_mode: true
+  use_space_char: true
+Architecture:
+  model_type: rec
+  algorithm: SVTR_HGNet
+  Transform: null
+  Backbone:
+    name: PPHGNetV2_B4
+    text_rec: true
+  Head:
+    name: MultiHead
+    head_list:
+    - CTCHead:
+        Neck:
+          name: svtr
+          dims: 120
+          depth: 2
+          hidden_dims: 120
+          kernel_size:
+          - 1
+          - 3
+          use_guide: true
+        Head:
+          fc_decay: 1.0e-05
+    - NRTRHead:
+        nrtr_dim: 384
+        max_text_length: 25
+PostProcess:
+  name: CTCLabelDecode
+Eval:
+  dataset:
+    transforms:
+    - DecodeImage:
+        img_mode: BGR
+        channel_first: false
+    - RecResizeImg:
+        image_shape:
+        - 3
+        - 48
+        - 320
+        infer_mode: true
+    - KeepKeys:
+        keep_keys:
+        - image

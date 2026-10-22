@@ -1,0 +1,42 @@
+{
+  "status": "passed",
+  "fixture_kind": "generated_equipment_register",
+  "database": "sqlite",
+  "processes": "HTTP API and independent worker",
+  "samples": [
+    {
+      "document": "equipment.png",
+      "pages": [
+        1
+      ],
+      "status": "succeeded",
+      "blocks": [
+        8
+      ],
+      "tables": [
+        1
+      ],
+      "seconds": 16.89
+    },
+    {
+      "document": "register.pdf",
+      "pages": [
+        2,
+        3
+      ],
+      "status": "succeeded",
+      "blocks": [
+        8,
+        8
+      ],
+      "tables": [
+        1,
+        1
+      ],
+      "seconds": 27.81
+    }
+  ],
+  "search_hits": 3,
+  "artifacts": ".verification/894fac95d58a47f8b67e570fd72730f4",
+  "accuracy_benchmark": false
+}

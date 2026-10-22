@@ -1,0 +1,271 @@
+' ==========================================================
+' 图 2-11a  领域类图（文档域）
+' ==========================================================
+@startuml 图2-11a_领域类图
+title 图2-11a  领域类图（文档域）
+
+left to right direction
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam classAttributeIconSize 0
+skinparam ClassBackgroundColor #EAF2F8
+skinparam ClassBorderColor #5D6D7E
+
+class "File（文件）\n[ocr_files]" as File {
+  - id : CHAR(32) <<PK>>
+  - owner_id : VARCHAR(128) <<IDX>>
+  - name : VARCHAR(255)
+  - storage_key : VARCHAR(100)
+  - sha256 : CHAR(64)
+  - page_count : INT
+  - generation : INT
+  - deleted_at : DATETIME
+  --
+  + upload(bytes) : File
+  + split(ranges) : list
+  + merge(files) : File
+  + soft_delete() : void
+  + bump_generation() : int
+}
+
+class "OcrJob（识别任务）\n[ocr_jobs]" as Job {
+  - id : CHAR(32) <<PK>>
+  - file_id : CHAR(32) <<FK>>
+  - generation : INT
+  - status : VARCHAR(24)
+  - attempts : INT
+  - lease_token : CHAR(32)
+  - lease_until : DATETIME
+  - available_at : DATETIME
+  --
+  + claim(worker) : bool
+  + heartbeat(token) : bool
+  + complete_attempt() : str
+  + cancel(user) : void
+  + retry(pages) : void
+}
+
+class "OcrPage（识别页）\n[ocr_pages]" as Page {
+  - id : CHAR(32) <<PK>>
+  - job_id : CHAR(32) <<FK>>
+  - page_no : INT
+  - status : VARCHAR(16)
+  - revision : INT
+  - result : JSON
+  - error : VARCHAR(80)
+  --
+  + save_result(json) : void
+  + fail(code) : void
+  + revise(json, expected) : void
+}
+
+class "TextIndex（全文索引）\n[pdf_text_index]" as TextIndex {
+  - id : CHAR(32) <<PK>>
+  - file_id : CHAR(32) <<FK>>
+  - page_no : INT
+  - job_id : CHAR(32) <<FK>>
+  - revision : INT
+  - content : LONGTEXT
+  --
+  + upsert(text, revision) : void
+  + match_against(q) : list
+  + make_snippet(q) : str
+}
+
+class "ShareLink（分享链接）" as Share {
+  - id : CHAR(32) <<PK>>
+  - file_id : CHAR(32) <<FK>>
+  - token : CHAR(64) <<UQ>>
+  - expires_at : DATETIME
+  - revoked : TINYINT
+  - visit_count : INT
+  --
+  + issue(file, ttl) : str
+  + validate(token) : bool
+  + revoke() : void
+}
+
+class "Category（分类）" as Category {
+  - id : CHAR(32) <<PK>>
+  - name : VARCHAR(64)
+  - parent_id : CHAR(32) <<FK>>
+  - sort_no : INT
+  --
+  + move_to(parent) : void
+  + tree_depth() : int
+}
+
+class "Tag（标签）" as Tag {
+  - id : CHAR(32) <<PK>>
+  - name : VARCHAR(32) <<UQ>>
+  - color : CHAR(7)
+  --
+  + attach(files) : void
+  + detach(files) : void
+}
+
+File "1" *-- "0..*" Job : 发起
+File "1" *-- "0..*" TextIndex : 按页索引
+Job "1" *-- "1..*" Page : 包含
+Page "1" ..> "0..1" TextIndex : 成功后回写
+File "1" o-- "0..*" Share : 生成分享
+File "0..*" -- "0..*" Tag : 打标签
+Category "1" o-- "0..*" File : 归类
+
+note bottom of Job
+  同一文件最多一个活动任务；
+  generation 保证旧代次结果不覆盖新代次。
+end note
+
+note bottom of TextIndex
+  (file_id, page_no) 唯一；
+  MySQL 使用 ngram FULLTEXT 索引。
+end note
+@enduml
+
+
+' ==========================================================
+' 图 2-11b  账号、权限与记账类图
+' ==========================================================
+@startuml 图2-11b_账号权限与记账类图
+title 图2-11b  账号、权限与记账类图
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam classAttributeIconSize 0
+skinparam ClassBackgroundColor #EAF2F8
+skinparam ClassBorderColor #5D6D7E
+
+class "User（用户）\n[sys_user]" as User {
+  - id : CHAR(32) <<PK>>
+  - username : VARCHAR(64) <<UQ>>
+  - password_hash : VARCHAR(255)
+  - status : ENUM
+  - failed_attempts : INT
+  - locked_until : DATETIME
+  --
+  + register() : User
+  + login(pwd) : Token
+  + change_password(o, n) : void
+  + principal() : Principal
+}
+
+class "Role（角色）" as Role {
+  - code : VARCHAR(16) <<PK>>
+  - name : VARCHAR(32)
+  - can_write : TINYINT
+  --
+  + has_permission(p) : bool
+}
+
+class "UserRole（用户角色）" as UserRole {
+  - user_id : CHAR(32) <<FK>>
+  - role_code : VARCHAR(16) <<FK>>
+}
+
+class "QuotaUsage（配额账）" as Quota {
+  - user_id : CHAR(32) <<FK>>
+  - period : CHAR(7)
+  - pages_reserved : INT
+  - pages_used : INT
+  - storage_bytes : BIGINT
+  --
+  + reserve(pages) : bool
+  + release(pages) : void
+  + settle(pages) : void
+  + remaining() : int
+}
+
+class "AuditLog（审计日志）\n[ocr_audit_log]" as Audit {
+  - id : CHAR(32) <<PK>>
+  - actor_id : VARCHAR(128) <<IDX>>
+  - action : VARCHAR(40)
+  - resource_id : CHAR(32)
+  - detail : JSON
+  --
+  + record(actor, act, res) : void
+  + query(filter) : list
+}
+
+enum "用户状态" as UserStatus {
+  ACTIVE
+  DISABLED
+  LOCKED
+}
+
+User "1" -- "0..*" UserRole : 拥有角色
+Role "1" -- "0..*" UserRole : 授予给
+User "1" -- "1" Quota : 每周期一条
+User "1" -- "0..*" Audit : 留痕
+User --> UserStatus
+
+note bottom of Role
+  角色取值 = user / viewer / admin；
+  viewer 被鉴权层拒绝一切写操作（403）。
+end note
+@enduml
+
+
+' ==========================================================
+' 图 2-12  系统部署图（单机 / 可完全离线）
+' ==========================================================
+@startuml 图2-12_系统部署图
+title 图2-12  系统部署图（单机 / 可完全离线）
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam NodeBackgroundColor #FDFEFE
+skinparam ComponentBackgroundColor #EAF2F8
+skinparam DatabaseBackgroundColor #FDEDEC
+skinparam ArtifactBackgroundColor #D6EAF8
+
+node "客户端：浏览器 Chrome / Edge 100+" {
+  artifact "React SPA" as SPA
+  artifact "pdf.js (Web Worker)" as PDFJS
+}
+
+node "应用服务器（同一主机）Windows / Ubuntu" {
+  node "Web 进程 :8000" as WEB {
+    component "REST 路由" as ROUTER
+    component "JWT 鉴权" as AUTH
+    component "导出渲染" as EXPORTER
+  }
+  node "Worker 进程" as WORKER {
+    component "队列领取与续租" as CONSUMER
+    component "PaddleOCR 推理" as ENGINE
+    component "表格还原" as TABLE
+  }
+  database "MySQL 8 :3306" as MYSQL
+  folder "本地磁盘 ocr_data/" as STORAGE
+  folder "模型权重 models/" as WEIGHTS
+}
+
+SPA -down-> ROUTER : HTTP REST :8000
+SPA -down-> PDFJS : 本地渲染
+ROUTER -right-> AUTH : 依赖
+ROUTER -right-> EXPORTER : 调用
+ROUTER -down-> MYSQL : TCP :3306
+CONSUMER -down-> MYSQL : CAS 领取 / 回写
+CONSUMER -down-> ENGINE : 推理调用
+ENGINE -down-> TABLE : 后处理
+CONSUMER -left-> STORAGE : 读原文件 / 写页图
+ENGINE -down-> WEIGHTS : 加载权重（仅本地）
+
+note bottom of MYSQL
+  数据全部留在本机，系统不依赖外网；
+  Worker 可多进程并发，由租约保证互斥。
+end note
+@enduml

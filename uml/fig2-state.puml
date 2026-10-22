@@ -1,0 +1,89 @@
+' ==========================================================
+' 图 2-7a  OCR 任务状态图
+' 建议幅面：通栏 14.6 x 10 cm（约 3/4 页；本图是第 2 章核心图之一，允许做大）
+' 说明：状态与迁移均对照 ocr_service/queue.py + api.py 的实际实现绘制
+' ==========================================================
+@startuml 图2-7a_OCR任务状态图
+title 图2-7a  OCR 任务状态图
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam StateBackgroundColor #EAF2F8
+skinparam StateBorderColor #5D6D7E
+skinparam NoteBackgroundColor #FCF3CF
+
+[*] --> queued : POST /jobs 成功\n占用 active_job_id, generation+1
+
+state "queued 排队中" as queued : 等待 worker 领取，available_at 到期后可被扫描
+state "running 执行中" as running : attempts ≥ 1，持有 lease_token
+state "retry_wait 等待重试" as retry_wait : 存在失败页且 attempts < 3，退避 15/30 秒
+state "succeeded 全部成功" as succeeded : 所有页 succeeded
+state "partial_success 部分成功" as partial : attempts 耗尽且部分页失败
+state "failed 失败" as failed : attempts 耗尽且全部页失败
+state "cancelled 已取消" as cancelled : 用户主动取消，配额预留随之退还
+
+queued --> running : worker 条件更新领取\nattempts+1, lease_until = now + 120 s
+running --> running : 心跳续租（每 40 秒刷新 lease_until）
+running --> running : 租约到期后被另一 worker 接管\n原 lease_token 提交被拒绝
+running --> succeeded : complete_attempt：全部页成功
+running --> partial : attempts = 3 且存在成功页
+running --> failed : attempts = 3 且无成功页
+running --> retry_wait : 存在失败页 且 attempts < 3
+retry_wait --> running : 到期再次被领取（attempts+1）
+queued --> cancelled : POST /jobs/{id}/cancel
+retry_wait --> cancelled : POST /jobs/{id}/cancel
+running --> cancelled : POST /jobs/{id}/cancel
+failed --> queued : POST /jobs/{id}/retry\n（attempts 归零，仅当无更新代次）
+partial --> queued : POST /jobs/{id}/retry\n（仅重跑失败页，成功页保留）
+succeeded --> [*] : 释放 active_job_id
+failed --> [*] : 释放 active_job_id
+partial --> [*] : 释放 active_job_id
+cancelled --> [*] : 释放 active_job_id
+
+note bottom of running
+  终态集合 = {succeeded, partial_success, failed, cancelled}；
+  只有持有匹配 lease_token 且 lease_until 未过期的 worker 才能提交结果。
+end note
+@enduml
+
+
+' ==========================================================
+' 图 2-7b  页面与检索索引同步状态图
+' 建议幅面：通栏 14.6 x 7 cm（约半页）
+' ==========================================================
+@startuml 图2-7b_页面状态图
+title 图2-7b  页面与全文索引同步状态图
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 26
+skinparam shadowing false
+skinparam ArrowFontSize 22
+skinparam ArrowColor #2C3E50
+skinparam DefaultFontColor #1F2933
+skinparam StateBackgroundColor #EAF2F8
+skinparam StateBorderColor #5D6D7E
+skinparam NoteBackgroundColor #FCF3CF
+
+[*] --> pending : 任务创建时为每页生成 Page 行
+
+state "pending 待处理" as pending : job_id + page_no 唯一
+state "succeeded 成功" as succeeded : result(JSON) = 文字框 + 文本 + 置信度
+state "failed 失败" as failed : error 字段记录失败码
+
+pending --> succeeded : 本页识别并写入成功\n同事务 upsert pdf_text_index
+pending --> failed : 本页识别失败\n保留此前成功索引不被覆盖
+failed --> pending : 任务级 retry 重置失败页\n（成功页不回退）
+succeeded --> succeeded : PATCH 校对\nrevision+1 并同步索引
+
+failed --> [*] : 任务终态后提供按页重试入口
+succeeded --> [*] : 可被检索命中并展示 job_id / revision
+
+note right of failed
+  失败页不会清空 pdf_text_index，
+  检索仍返回上一次成功结果，并标注其 job_id 与 revision。
+end note
+@enduml

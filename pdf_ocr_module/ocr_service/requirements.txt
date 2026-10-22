@@ -1,0 +1,15 @@
+# API and worker orchestration. See environment-service-lock.txt for the full CPU runtime.
+fastapi==0.115.12
+uvicorn==0.34.3
+SQLAlchemy==2.0.41
+PyMySQL==1.1.1
+PyJWT==2.10.1
+python-multipart==0.0.20
+pypdfium2==5.14.0
+openpyxl==3.1.5
+# Image processing:
+Pillow==11.3.0
+numpy==1.26.4
+opencv-python==4.11.0.86
+PyYAML==6.0.3
+
