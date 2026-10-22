@@ -56,6 +56,9 @@ coverage.xml
 htmlcov/
 *.mo
 *.pot
+*.bak
+*.orig
+*.rej
 
 # ⚠️ 刻意不加 `build/`：本仓库根目录的 build/ 是需求文档生成脚本
 #    （doc_part1.py … make_docx.py），属源码而非构建产物。
