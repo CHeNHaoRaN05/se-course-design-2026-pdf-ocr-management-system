@@ -77,7 +77,26 @@
 
 `audit_logs(id, actor_id, action, resource_id, detail JSON, created_at)`；
 `action ∈ {user_registered, user_logged_in, file_uploaded, file_updated, file_trashed,
-file_restored, file_purged, bookmark_created, bookmark_deleted, annotation_created, annotation_deleted}`。
+file_restored, file_purged, bookmark_created, bookmark_deleted, annotation_created, annotation_deleted,
+share_created, share_revoked, share_visited}`。
+
+### share_links（甲，支撑 FR-SHR-01/02/03）
+
+分享不复制文件实体，被分享者只读。文件被彻底删除时分享链接级联清除。
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | VARCHAR(32) | PK | uuid4().hex |
+| file_id | VARCHAR(32) | FK→files.id, CASCADE, INDEX | 被分享文件 |
+| owner_id | VARCHAR(32) | INDEX | 分享者 |
+| token | VARCHAR(64) | UNIQUE, INDEX | 分享 URL 中的随机令牌（默认 uid()） |
+| expires_at | DATETIME | NULL | 有效期；NULL=永不过期 |
+| access_code | VARCHAR(32) | NULL | 提取码；NULL=无需提取码 |
+| allow_download | TINYINT | default 1 | 是否允许被分享者下载 |
+| visit_count | INT | default 0 | 访问统计计数器（FR-SHR-03） |
+| created_at | DATETIME | | UTC 无时区 |
+
+取消分享（FR-SHR-02）= 删除该分享链接行；访问统计直接读 `visit_count`。
 
 ---
 

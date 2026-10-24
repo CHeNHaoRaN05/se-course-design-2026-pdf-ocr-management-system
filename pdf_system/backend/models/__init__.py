@@ -4,9 +4,10 @@ from .base import Base, now, uid
 from .file import File, Tag, file_tags
 from .quota import QuotaAccount, QuotaLedger, current_month
 from .reader import Annotation, Bookmark
+from .share import ShareLink
 from .user import User
 
 __all__ = [
     "Annotation", "AuditLog", "Base", "Bookmark", "File", "QuotaAccount", "QuotaLedger",
-    "Tag", "User", "current_month", "file_tags", "now", "uid",
+    "ShareLink", "Tag", "User", "current_month", "file_tags", "now", "uid",
 ]
