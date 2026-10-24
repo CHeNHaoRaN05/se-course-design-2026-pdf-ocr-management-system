@@ -1,7 +1,7 @@
 # 统一开发环境配置
 
 > 本文所有版本号与输出均在本机**实测通过**，不是照抄 README。
-> 配套：`架构概览.md`（接口与调用关系）、`分工.md`（谁做什么）。
+> 配套：[`../architecture.md`](../architecture.md)（接口与调用关系）、[`../development-baseline.md`](../development-baseline.md)（公共限制与分工）、[`backend.md`](backend.md)（各线详细分工）。
 
 ## 0. 结论先行
 

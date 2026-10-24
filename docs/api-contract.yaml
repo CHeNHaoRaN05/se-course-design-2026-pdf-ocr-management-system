@@ -1,0 +1,298 @@
+# API 契约（OpenAPI 3.0 骨架）
+# 与 docs/architecture.md 第 3 节的接口总表一一对应（共 48 个：主系统 31 + OCR 模块 17）。
+# 本文件是「契约先行」的载体：改接口先改这里（或对应契约 C*.md）并单独提 PR，确认后再动代码。
+# 详细请求/响应结构以运行时 Swagger（http://127.0.0.1:8000/docs）为准。
+openapi: 3.0.3
+info:
+  title: PDF OCR Management System API
+  description: |
+    基于本地 OCR 的 PDF 文件显示与管理系统。统一前缀 /api/v1。
+    OCR 模块的 17 个接口由 ocr_service.install(app, settings) 挂载进主系统，同进程、同端口、同 JWT。
+    越权统一返回 404（避免资源探测）。错误响应统一走 core/errors.py。
+  version: 0.1.0
+servers:
+  - url: /api/v1
+tags:
+  - name: system
+  - name: auth        # 线01 陈
+  - name: quota       # 线01 陈
+  - name: files       # 线02 岳
+  - name: reader      # 线02 岳
+  - name: ocr-host    # 线03 黄（宿主端点）
+  - name: ocr         # 线03 黄（OCR 模块挂载）
+  - name: search      # 线03 黄
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: 健康自检（公开，部署自检用）
+      security: []
+      responses: { "200": { description: OK } }
+
+  # ── 线01 陈：用户与权限 ─────────────────────────────────
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: 注册，直接返回 token
+      security: []
+      responses: { "200": { description: OK } }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: 登录，返回 token
+      security: []
+      responses: { "200": { description: OK } }
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: 当前用户
+      responses: { "200": { description: OK } }
+  /auth/_admin/check:
+    get:
+      tags: [auth]
+      summary: 管理员自检端点
+      x-permission: admin
+      responses: { "200": { description: OK } }
+
+  # ── 线01 陈：配额 ──────────────────────────────────────
+  /quota:
+    get:
+      tags: [quota]
+      summary: 我的配额
+      responses: { "200": { description: OK } }
+  /quota/overview:
+    get:
+      tags: [quota]
+      summary: 配额统计概览（统计看板数据源）
+      responses: { "200": { description: OK } }
+
+  # ── 线02 岳：文件管理 ──────────────────────────────────
+  /files:
+    post:
+      tags: [files]
+      summary: 上传（三重校验：扩展名 + MIME + 魔数）
+      x-permission: editor
+      responses: { "201": { description: Created } }
+    get:
+      tags: [files]
+      summary: 文件列表（folder/tag/q/limit/offset）
+      responses: { "200": { description: OK } }
+  /files/folders:
+    get:
+      tags: [files]
+      summary: 目录树
+      responses: { "200": { description: OK } }
+  /files/tags:
+    get:
+      tags: [files]
+      summary: 全部标签
+      responses: { "200": { description: OK } }
+  /files/{file_id}:
+    get:
+      tags: [files]
+      summary: 文件详情
+      responses: { "200": { description: OK }, "404": { description: 越权或已删 } }
+    patch:
+      tags: [files]
+      summary: 改名 / 移动 / 改标签
+      x-permission: editor
+      responses: { "200": { description: OK } }
+    delete:
+      tags: [files]
+      summary: 软删除（进回收站）
+      x-permission: editor
+      responses: { "204": { description: No Content } }
+  /files/{file_id}/content:
+    get:
+      tags: [files]
+      summary: 原文件（支持 Range；pdf.js 带 JWT 直接请求）
+      responses: { "200": { description: OK } }
+  /files/{file_id}/pages:
+    get:
+      tags: [files]
+      summary: 各页尺寸（视口计算）
+      responses: { "200": { description: OK } }
+  /files/{file_id}/restore:
+    post:
+      tags: [files]
+      summary: 回收站还原
+      x-permission: editor
+      responses: { "200": { description: OK } }
+  /files/{file_id}/purge:
+    delete:
+      tags: [files]
+      summary: 彻底删除（先取消 OCR 任务、清页 PNG）
+      x-permission: editor
+      responses: { "204": { description: No Content } }
+
+  # ── 线02 岳：阅读器 ────────────────────────────────────
+  /files/{file_id}/reader/bookmarks:
+    get:
+      tags: [reader]
+      summary: 书签列表
+      responses: { "200": { description: OK } }
+    post:
+      tags: [reader]
+      summary: 新增书签
+      x-permission: editor
+      responses: { "201": { description: Created } }
+  /files/{file_id}/reader/bookmarks/{bookmark_id}:
+    delete:
+      tags: [reader]
+      summary: 删除书签
+      x-permission: editor
+      responses: { "204": { description: No Content } }
+  /files/{file_id}/reader/annotations:
+    get:
+      tags: [reader]
+      summary: 批注列表（可按 page_no 过滤）
+      responses: { "200": { description: OK } }
+    post:
+      tags: [reader]
+      summary: 新增批注（payload 归一化坐标，契约 C4）
+      x-permission: editor
+      responses: { "201": { description: Created } }
+  /files/{file_id}/reader/annotations/{annotation_id}:
+    delete:
+      tags: [reader]
+      summary: 删除批注
+      x-permission: editor
+      responses: { "204": { description: No Content } }
+
+  # ── 线03 黄：OCR 宿主端点 ──────────────────────────────
+  /ocr-host/capabilities:
+    get:
+      tags: [ocr-host]
+      summary: 能力探测（挂载状态、存储路径、设备、月配额）
+      responses: { "200": { description: OK }, "409": { description: OCR 模块未挂载 } }
+  /ocr-host/usage:
+    get:
+      tags: [ocr-host]
+      summary: 配额用量 + OCR 用量汇总
+      responses: { "200": { description: OK } }
+  /ocr-host/files/{file_id}/sync:
+    post:
+      tags: [ocr-host]
+      summary: 手动重建镜像行（上传后镜像失败的补救）
+      x-permission: editor
+      responses: { "200": { description: OK } }
+  /ocr-host/files/{file_id}/jobs:
+    get:
+      tags: [ocr-host]
+      summary: 该文件最近一次任务（前端跳转结果页）
+      responses: { "200": { description: OK } }
+  /ocr-host/jobs/{job_id}/settle:
+    post:
+      tags: [ocr-host]
+      summary: 任务终态后结算配额（幂等）
+      x-permission: editor
+      responses: { "200": { description: OK } }
+
+  # ── 线03 黄：OCR 模块挂载（ocr_service 提供，同进程同端口）──
+  /ocr/capabilities:
+    get:
+      tags: [ocr]
+      summary: 引擎能力（语言、设备、版本）
+      responses: { "200": { description: OK } }
+  /ocr/files:
+    post:
+      tags: [ocr]
+      summary: 建镜像文件行（幂等）
+      x-permission: editor
+      responses: { "200": { description: OK } }
+  /ocr/files/{file_id}:
+    get:
+      tags: [ocr]
+      summary: 读镜像行
+      responses: { "200": { description: OK } }
+  /ocr/files/{file_id}/content:
+    get:
+      tags: [ocr]
+      summary: 读原文件内容
+      responses: { "200": { description: OK } }
+  /ocr/jobs:
+    post:
+      tags: [ocr]
+      summary: 提交识别任务（入队；入队前 quota.reserve 扣配额，契约 C3）
+      x-permission: editor
+      responses: { "202": { description: Accepted } }
+    get:
+      tags: [ocr]
+      summary: 任务列表
+      responses: { "200": { description: OK } }
+  /ocr/jobs/{job_id}:
+    get:
+      tags: [ocr]
+      summary: 任务详情 / 进度
+      responses: { "200": { description: OK } }
+  /ocr/jobs/{job_id}/cancel:
+    post:
+      tags: [ocr]
+      summary: 取消任务
+      responses: { "200": { description: OK } }
+  /ocr/jobs/{job_id}/retry:
+    post:
+      tags: [ocr]
+      summary: 重试（整任务或指定页）
+      responses: { "200": { description: OK } }
+  /ocr/jobs/{job_id}/pages:
+    get:
+      tags: [ocr]
+      summary: 全部页结果
+      responses: { "200": { description: OK } }
+  /ocr/jobs/{job_id}/pages/{page_no}:
+    get:
+      tags: [ocr]
+      summary: 单页结果
+      responses: { "200": { description: OK } }
+    patch:
+      tags: [ocr]
+      summary: 校对保存（expected_revision 冲突返回 409）
+      responses: { "200": { description: OK }, "409": { description: 修订号冲突 } }
+  /ocr/jobs/{job_id}/pages/{page_no}/image:
+    get:
+      tags: [ocr]
+      summary: 单页渲染图（校对时对照原图）
+      responses: { "200": { description: OK } }
+  /ocr/jobs/{job_id}/export:
+    get:
+      tags: [ocr]
+      summary: 导出（TXT / JSON / CSV / HTML / XLSX）
+      responses: { "200": { description: OK } }
+  /ocr/search:
+    get:
+      tags: [ocr]
+      summary: OCR 侧检索
+      responses: { "200": { description: OK } }
+  /ocr/usage:
+    get:
+      tags: [ocr]
+      summary: OCR 用量
+      responses: { "200": { description: OK } }
+  /ocr/audit:
+    get:
+      tags: [ocr]
+      summary: OCR 侧审计日志
+      responses: { "200": { description: OK } }
+
+  # ── 线03 黄：全文检索 ──────────────────────────────────
+  /search:
+    get:
+      tags: [search]
+      summary: 全文检索（q/limit；返回 file_id、page_no、snippet、job_id、revision）
+      responses: { "200": { description: OK } }
+  /search/suggest:
+    get:
+      tags: [search]
+      summary: 检索建议
+      responses: { "200": { description: OK } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT（HS256）由主系统签发；OCR 模块经 dependency_overrides 复用 resolve_principal 验签（契约 C1）。

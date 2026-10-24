@@ -1,0 +1,149 @@
+---
+title: 全局 E-R 图（对应需求文档 图 2-14）
+---
+erDiagram
+    users {
+        varchar_32 id PK
+        varchar email UK
+        varchar display_name
+        varchar password_hash
+        enum role "user|viewer|admin"
+        bool disabled
+        int login_count
+        datetime created_at
+        datetime last_login_at
+    }
+    files {
+        varchar_32 id PK
+        varchar_32 owner_id FK
+        varchar name
+        varchar folder
+        varchar storage_key UK
+        varchar media_type
+        char_64 sha256
+        bigint size
+        int page_count
+        int version
+        varchar_32 replaced_from
+        datetime deleted_at
+        datetime created_at
+    }
+    tags {
+        varchar_32 id PK
+        varchar_32 owner_id FK
+        varchar name
+    }
+    file_tags {
+        varchar_32 file_id PK_FK
+        varchar_32 tag_id PK_FK
+    }
+    bookmarks {
+        varchar_32 id PK
+        varchar_32 file_id FK
+        varchar_32 owner_id FK
+        int page_no
+        varchar title
+        datetime created_at
+    }
+    annotations {
+        varchar_32 id PK
+        varchar_32 file_id FK
+        varchar_32 owner_id FK
+        int page_no
+        varchar kind "highlight|note|ink"
+        json payload "归一化坐标(左上原点, C4)"
+        datetime created_at
+        datetime updated_at
+    }
+    quota_accounts {
+        varchar_32 user_id PK_FK
+        varchar month PK
+        int pages_reserved
+        int pages_used
+        datetime updated_at
+    }
+    quota_ledger {
+        varchar_32 id PK
+        varchar_32 user_id FK
+        varchar month
+        int pages "正=占用 负=退还"
+        varchar reason
+        varchar_32 ref_id
+        datetime created_at
+    }
+    audit_logs {
+        varchar_32 id PK
+        varchar_32 actor_id FK
+        varchar action
+        varchar_32 resource_id
+        json detail
+        datetime created_at
+    }
+    ocr_files {
+        varchar_32 id PK_FK "与 files.id 同值 (C2)"
+        varchar_32 owner_id FK
+        varchar name
+        varchar storage_key
+        varchar media_type
+        char_64 sha256
+        bigint size
+        int page_count
+        varchar_32 active_job_id
+        int generation
+        datetime created_at
+    }
+    ocr_jobs {
+        varchar_32 id PK
+        varchar_32 file_id FK
+        int generation
+        varchar_32 owner_id FK
+        varchar status
+        json options
+        int attempts "0-3"
+        varchar lease_token
+        datetime lease_until
+        datetime available_at
+        datetime created_at
+        datetime finished_at
+    }
+    ocr_pages {
+        varchar_32 id PK
+        varchar_32 job_id FK
+        int page_no
+        varchar status
+        int revision
+        json result
+        text error
+    }
+    pdf_text_index {
+        varchar_32 id PK
+        varchar_32 file_id FK
+        int page_no
+        varchar_32 job_id FK
+        int revision
+        longtext content
+        datetime updated_at
+    }
+    ocr_audit_log {
+        varchar_32 id PK
+        varchar_32 actor_id FK
+        varchar action
+        varchar_32 resource_id
+        json detail
+        datetime created_at
+    }
+
+    users ||--o{ files : owns
+    users ||--o{ quota_accounts : has
+    users ||--o{ quota_ledger : has
+    users ||--o{ audit_logs : acts
+    users ||--o{ tags : owns
+    files ||--o{ bookmarks : has
+    files ||--o{ annotations : has
+    files ||--o{ file_tags : tagged
+    tags ||--o{ file_tags : tags
+    files |o--o| ocr_files : mirrors
+    ocr_files ||--o{ ocr_jobs : has
+    ocr_jobs ||--o{ ocr_pages : produces
+    ocr_jobs ||--o{ pdf_text_index : indexes
+    users ||--o{ ocr_audit_log : acts

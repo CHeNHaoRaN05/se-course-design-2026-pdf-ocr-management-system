@@ -1,7 +1,7 @@
 # 架构概览：接口总表与调用关系
 
 > 项目：基于本地 OCR 的 PDF 文件显示与管理系统
-> 配套文档：[`分工.md`](分工.md)（谁做什么）、[`CONTRIBUTING.md`](../CONTRIBUTING.md)（怎么协作）、[`pdf_system/docs/ARCHITECTURE.md`](../pdf_system/docs/ARCHITECTURE.md)（详细设计）
+> 配套文档：[`api-contract.yaml`](api-contract.yaml)（接口契约）、[`development-baseline.md`](development-baseline.md)（公共限制与分工）、[`team/backend.md`](team/backend.md)（各线详细分工与跨线接口）、[`CONTRIBUTING.md`](../CONTRIBUTING.md)（怎么协作）、[`pdf_system/docs/ARCHITECTURE.md`](../pdf_system/docs/ARCHITECTURE.md)（详细设计）
 > 本文档面向「接手代码的人」，只回答两个问题：**有哪些接口**、**谁调用谁**。
 
 ---
@@ -218,7 +218,7 @@ SearchPage       ─────────> （内联）        ──> api<T>
 | 全部 | 陈 `core/audit.py` | `audit(session, actor_id, action, resource_id, **detail)` | — |
 
 **最脆弱的一环**：`search/service.py` 用裸 SQL 直接查黄的表 `pdf_text_index`。
-黄改表结构 → 陈的检索直接 500，且报错不指向根因。这是分工文档 0.9 里标红的共享字段之一。
+黄改表结构 → 陈的检索直接 500，且报错不指向根因。这是 [`team/database.md`](team/database.md) 标红的共享字段之一。
 
 ---
 
@@ -321,7 +321,7 @@ worker 与主系统**只通过数据库通信**，没有任何 RPC。
 
 ## 10. 最小可运行 Demo
 
-完整环境配置（版本矩阵、安装步骤、已踩的坑）见 **`环境配置.md`**。
+完整环境配置（版本矩阵、安装步骤、已踩的坑）见 **[`team/getting-started.md`](team/getting-started.md)**。
 本节给能立刻验证"全链路通了"的最短路径，所有输出均为本机实测。
 
 ### 10.1 起服务
