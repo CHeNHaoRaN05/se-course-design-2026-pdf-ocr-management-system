@@ -32,6 +32,7 @@ class UserOut(BaseModel):
     email: str
     display_name: str
     role: str
+    disabled: bool
     created_at: datetime
 
 

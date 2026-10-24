@@ -37,7 +37,7 @@ def login_endpoint(body: LoginIn, request: Request, session: Session = Depends(g
 def me(session: Session = Depends(get_session), user: Principal = Depends(current_user)):
     record = session.get(User, user.user_id)
     return UserOut(id=record.id, email=record.email, display_name=record.display_name,
-                   role=record.role, created_at=record.created_at)
+                   role=record.role, disabled=record.disabled, created_at=record.created_at)
 
 
 @router.get("/_admin/check", response_model=dict)
@@ -56,7 +56,7 @@ def set_role(user_id: str, body: RoleUpdate, session: Session = Depends(get_sess
     audit(session, admin.user_id, "user_role_changed", user_id, role=body.role)
     session.commit()
     return UserOut(id=target.id, email=target.email, display_name=target.display_name,
-                   role=target.role, created_at=target.created_at)
+                   role=target.role, disabled=target.disabled, created_at=target.created_at)
 
 
 @router.post("/logout", status_code=204)
@@ -99,4 +99,4 @@ def set_disabled_endpoint(user_id: str, body: DisabledUpdate,
     set_disabled(session, target, body.disabled, actor_id=admin.user_id)
     session.commit()
     return UserOut(id=target.id, email=target.email, display_name=target.display_name,
-                   role=target.role, created_at=target.created_at)
+                   role=target.role, disabled=target.disabled, created_at=target.created_at)

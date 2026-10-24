@@ -11,7 +11,7 @@ from ...core.database import get_session
 from ...core.errors import bad_request
 from ...core.media import MediaError, safe_path
 from ...core.principal import Principal, current_user, share_access
-from ..models import ShareLink
+from ...models import ShareLink
 from . import service
 from .schemas import ShareCreate, ShareOut, ShareStats
 
