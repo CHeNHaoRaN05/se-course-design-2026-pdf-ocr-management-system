@@ -63,16 +63,16 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 ## 3. 接口总表
 
-共 **55 个接口**（主系统 38 + OCR 模块 17）：
+共 **58 个接口**（主系统 41 + OCR 模块 17）：
 
 | 归属 | 数量 | 小节 |
 |---|---|---|
 | 系统级 | 1 | 3.1 |
-| 01 线 陈（auth + quota + share） | 13 | 3.2、3.7 |
+| 01 线 陈（auth + quota + share） | 16 | 3.2、3.7 |
 | 02 线 岳（files + reader） | 17 | 3.3 |
 | 03 线 黄 · 主系统侧（search + ocr-host） | 7 | 3.4、3.6 |
 | 03 线 黄 · OCR 模块挂载 | 17 | 3.5 |
-| **合计** | **55** | |
+| **合计** | **58** | |
 
 统一前缀 `/api/v1`。权限列含义：
 
@@ -96,8 +96,11 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 | GET | `/auth/me` | 用户 | 当前用户 |
 | GET | `/auth/_admin/check` | 管理员 | 管理员自检端点 |
 | GET | `/quota` | 用户 | 我的配额 |
-| GET | `/quota/overview` | 用户 | 配额统计概览（统计看板的后端数据源，**前端页面尚未开发**） |
+| GET | `/quota/overview` | 用户 | 配额统计概览（统计看板后端数据源，前端页 `features/stats/StatsPage.tsx` 已落地，FR-QTA-04） |
 | PATCH | `/auth/users/{user_id}/role` | 管理员 | 修改指定用户角色（FR-USER-06，user/viewer/admin） |
+| POST | `/auth/logout` | 用户 | 单点登出，吊销当前令牌（FR-USER-03；其他会话不受影响） |
+| POST | `/auth/refresh` | 用户 | 用当前令牌换新令牌，旧令牌立即失效（FR-USER-04） |
+| POST | `/auth/change-password` | 用户 | 修改密码；成功后全部旧令牌失效并返回新令牌（FR-USER-05） |
 
 ### 3.3 02 线：文件管理与阅读器（岳）
 

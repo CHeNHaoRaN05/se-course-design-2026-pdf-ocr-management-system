@@ -5,6 +5,7 @@ import LoginPage from "../features/auth/LoginPage";
 import FilesPage from "../features/files/FilesPage";
 import ReaderPage from "../features/reader/ReaderPage";
 import SearchPage from "../features/search/SearchPage";
+import StatsPage from "../features/stats/StatsPage";
 
 function Guard({ children }: { children: JSX.Element }) {
   const { token } = useAuth();
@@ -19,6 +20,7 @@ export default function AppRoutes() {
         <Route path="/files" element={<FilesPage />} />
         <Route path="/files/:fileId" element={<ReaderPage />} />
         <Route path="/search" element={<SearchPage />} />
+        <Route path="/stats" element={<StatsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/files" replace />} />
     </Routes>

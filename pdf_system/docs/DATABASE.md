@@ -21,6 +21,7 @@
 | password_hash | VARCHAR(255) | NOT NULL | `pbkdf2_sha256$轮数$salt$digest` |
 | role | VARCHAR(16) | default `user` | user / viewer / admin |
 | disabled | TINYINT | default 0 | 停用后令牌立即失效 |
+| token_version | INT | default 0 | 改密码时自增，使所有旧令牌失效（FR-USER-05） |
 | login_count | INT | default 0 | |
 | created_at / last_login_at | DATETIME | | UTC 无时区 |
 
@@ -97,6 +98,18 @@ share_created, share_revoked, share_visited}`。
 | created_at | DATETIME | | UTC 无时区 |
 
 取消分享（FR-SHR-02）= 删除该分享链接行；访问统计直接读 `visit_count`。
+
+### revoked_tokens（甲，支撑 FR-USER-03/04/05）
+
+JWT 吊销黑名单；`resolve_principal` 在每个请求里用 `session.get(RevokedToken, jti)` 判断存在性。
+过期行可由定时任务清理，本系统规模小暂不强制。
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| jti | VARCHAR(64) | PK | 被吊销令牌的 `jti` 声明 |
+| user_id | VARCHAR(32) | INDEX | 所属用户 |
+| expires_at | DATETIME | NULL | 原令牌过期时间，供清理用 |
+| revoked_at | DATETIME | | UTC 无时区 |
 
 ---
 

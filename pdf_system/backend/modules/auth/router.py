@@ -3,15 +3,16 @@
 说明：修改角色由管理员经 PATCH /auth/users/{user_id}/role 完成（FR-USER-06）。
 """
 from fastapi import APIRouter, Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from ...core.audit import audit
 from ...core.database import get_session
 from ...core.errors import not_found
-from ...core.principal import Principal, current_user, require_admin
+from ...core.principal import Principal, bearer, current_user, require_admin
 from ...models import User
-from .schemas import LoginIn, RegisterIn, RoleUpdate, TokenOut, UserOut
-from .service import login, register
+from .schemas import ChangePasswordIn, LoginIn, RegisterIn, RoleUpdate, TokenOut, UserOut
+from .service import change_password, login, logout, refresh, register
 
 router = APIRouter(prefix="/auth", tags=["01 用户与权限·甲"])
 
@@ -55,3 +56,30 @@ def set_role(user_id: str, body: RoleUpdate, session: Session = Depends(get_sess
     session.commit()
     return UserOut(id=target.id, email=target.email, display_name=target.display_name,
                    role=target.role, created_at=target.created_at)
+
+
+@router.post("/logout", status_code=204)
+def logout_endpoint(request: Request, credentials: HTTPAuthorizationCredentials = Depends(bearer),
+                   session: Session = Depends(get_session), user: Principal = Depends(current_user)):
+    """FR-USER-03：单点登出，吊销当前令牌（其余会话不受影响）。"""
+    logout(session, request.app.state.settings, credentials.credentials)
+    session.commit()
+
+
+@router.post("/refresh", response_model=TokenOut)
+def refresh_endpoint(request: Request, credentials: HTTPAuthorizationCredentials = Depends(bearer),
+                    session: Session = Depends(get_session), user: Principal = Depends(current_user)):
+    """FR-USER-04：用当前有效令牌换新令牌，旧令牌立即失效。"""
+    result = refresh(session, request.app.state.settings, credentials.credentials)
+    session.commit()
+    return result
+
+
+@router.post("/change-password", response_model=TokenOut)
+def change_password_endpoint(body: ChangePasswordIn, request: Request,
+                            session: Session = Depends(get_session),
+                            user: Principal = Depends(current_user)):
+    """FR-USER-05：修改密码；成功后所有旧令牌失效并返回新令牌。"""
+    result = change_password(session, request.app.state.settings, user.user_id, body)
+    session.commit()
+    return result

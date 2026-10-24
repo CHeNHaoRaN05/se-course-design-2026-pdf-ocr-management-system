@@ -10,6 +10,7 @@ export default function Layout() {
         <nav>
           <NavLink to="/files">文件</NavLink>
           <NavLink to="/search">全文检索</NavLink>
+          <NavLink to="/stats">统计</NavLink>
         </nav>
         <span className="spacer" />
         <span>{me ? `${me.display_name}（${me.role}）` : "未登录"}</span>

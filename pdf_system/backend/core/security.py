@@ -35,7 +35,8 @@ def verify_password(plain: str, stored: str) -> bool:
 
 
 def create_access_token(*, user_id: str, role: str, secret: str, issuer: str, audience: str,
-                        expire_minutes: int) -> str:
+                        expire_minutes: int, jti: str | None = None,
+                        token_version: int | None = None) -> str:
     issued = datetime.now(timezone.utc)
     claims = {
         "sub": user_id,
@@ -45,6 +46,10 @@ def create_access_token(*, user_id: str, role: str, secret: str, issuer: str, au
         "iat": issued,
         "exp": issued + timedelta(minutes=expire_minutes),
     }
+    if jti is not None:
+        claims["jti"] = jti
+    if token_version is not None:
+        claims["tv"] = token_version
     return jwt.encode(claims, secret, algorithm="HS256")
 
 

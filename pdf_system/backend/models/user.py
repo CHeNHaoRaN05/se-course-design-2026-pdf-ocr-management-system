@@ -16,6 +16,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="user")  # user / viewer / admin
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=0)  # 改密码时自增，使所有旧令牌失效
     login_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

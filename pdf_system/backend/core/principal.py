@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
-from ..models import ShareLink, User, now
+from ..models import RevokedToken, ShareLink, User, now
 from .config import Settings
 from .errors import not_found
 from .security import decode_token
@@ -47,6 +47,12 @@ def resolve_principal(request: Request, credentials: HTTPAuthorizationCredential
         user = session.get(User, sub)
         if user is None or user.disabled:
             raise HTTPException(401, "账号不存在或已停用")
+        # 改密码后旧令牌整体失效（token_version 不匹配）
+        if "tv" in claims and claims["tv"] != user.token_version:
+            raise HTTPException(401, "令牌已失效，请重新登录", headers={"WWW-Authenticate": "Bearer"})
+        # 单点登出 / 刷新回收的旧令牌
+        if "jti" in claims and session.get(RevokedToken, claims["jti"]) is not None:
+            raise HTTPException(401, "令牌已失效，请重新登录", headers={"WWW-Authenticate": "Bearer"})
         # 角色以库内为准，避免令牌里的旧角色继续生效
         return Principal(user_id=user.id, role=user.role)
 
