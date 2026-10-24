@@ -81,7 +81,7 @@ def refresh(session, settings, token: str) -> TokenOut:
 
 
 def change_password(session, settings, user_id: str, body: ChangePasswordIn) -> TokenOut:
-    """FR-USER-05：校验原密码 → 改密 → token_version 自增（全部旧令牌失效）→ 发新令牌。"""
+    """FR-USER-02：校验原密码 → 改密 → token_version 自增（全部旧令牌失效）→ 发新令牌。"""
     record = session.get(User, user_id)
     if record is None or not verify_password(body.old_password, record.password_hash):
         raise bad_request("原密码不正确")
@@ -89,3 +89,10 @@ def change_password(session, settings, user_id: str, body: ChangePasswordIn) -> 
     record.token_version = (record.token_version or 0) + 1
     audit(session, user_id, "user_password_changed", user_id)
     return _issue(settings, user_id=record.id, role=record.role, token_version=record.token_version)
+
+
+def set_disabled(session, target: User, disabled: bool, *, actor_id: str) -> User:
+    """FR-USER-04：管理员禁用/解禁账号；禁用后其所有令牌立即失效（resolve_principal 拦截 disabled）。"""
+    target.disabled = bool(disabled)
+    audit(session, actor_id, "user_disabled" if disabled else "user_enabled", target.id)
+    return target
