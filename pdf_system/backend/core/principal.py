@@ -8,9 +8,11 @@ from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 
-from ..models import User
+from ..models import ShareLink, User, now
 from .config import Settings
+from .errors import not_found
 from .security import decode_token
 
 ROLES = {"user", "viewer", "admin"}
@@ -86,3 +88,20 @@ def visible_files(statement, user: Principal):
     if not user.is_admin:
         statement = statement.where(File.owner_id == user.user_id)
     return statement
+
+
+def share_access(token: str, session, code: str | None = None) -> ShareLink:
+    """分享旁路解析：凭 token（非 JWT）校验分享链接，供被分享者只读访问。
+
+    严格不改动 resolve_principal 主路径；错误 token / 过期 / 提取码不符统一 404，
+    避免泄露分享是否存在。返回前递增访问计数（visit_count）。
+    """
+    link = session.scalar(select(ShareLink).where(ShareLink.token == token))
+    if link is None:
+        raise not_found()
+    if link.expires_at is not None and link.expires_at < now():
+        raise not_found()
+    if link.access_code is not None and link.access_code != (code or ""):
+        raise not_found()
+    link.visit_count += 1
+    return link

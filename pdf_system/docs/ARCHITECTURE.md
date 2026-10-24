@@ -51,7 +51,7 @@ worker 与主 API 只通过**数据库与共享存储**耦合，可分别重启�
 
 | 线 | 后端 | 前端 | 负责的一级功能 | 负责人 |
 |---|---|---|---|---|
-| 01 用户与权限 | `modules/auth`<br/>`modules/quota` | `features/auth`<br/>统计页 | 1–6 | 甲（组长） |
+| 01 用户与权限 | `modules/auth`<br/>`modules/quota`<br/>`modules/share` | `features/auth`<br/>统计页 | 1–6 | 甲（组长） |
 | 02 文件管理与阅读器 | `modules/files`<br/>`modules/reader` | `features/files`<br/>`features/reader` | 7–12 | 乙 |
 | 03 OCR 与检索 | `modules/ocr`<br/>`modules/search` | `features/ocr`<br/>`features/search` | 13–18 | 丙 |
 | 共享底座 | `core/` | `src/app`<br/>`src/shared` | 由甲维护，改动走 PR | 甲 |

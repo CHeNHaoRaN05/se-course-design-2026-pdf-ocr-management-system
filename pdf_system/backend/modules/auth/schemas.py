@@ -33,3 +33,7 @@ class UserOut(BaseModel):
     display_name: str
     role: str
     created_at: datetime
+
+
+class RoleUpdate(StrictModel):
+    role: Literal["user", "viewer", "admin"]

@@ -63,16 +63,16 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 ## 3. 接口总表
 
-共 **48 个接口**（主系统 31 + OCR 模块 17）：
+共 **55 个接口**（主系统 38 + OCR 模块 17）：
 
 | 归属 | 数量 | 小节 |
 |---|---|---|
 | 系统级 | 1 | 3.1 |
-| 01 线 陈（auth + quota） | 6 | 3.2 |
+| 01 线 陈（auth + quota + share） | 13 | 3.2、3.7 |
 | 02 线 岳（files + reader） | 17 | 3.3 |
 | 03 线 黄 · 主系统侧（search + ocr-host） | 7 | 3.4、3.6 |
 | 03 线 黄 · OCR 模块挂载 | 17 | 3.5 |
-| **合计** | **48** | |
+| **合计** | **55** | |
 
 统一前缀 `/api/v1`。权限列含义：
 
@@ -97,6 +97,7 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 | GET | `/auth/_admin/check` | 管理员 | 管理员自检端点 |
 | GET | `/quota` | 用户 | 我的配额 |
 | GET | `/quota/overview` | 用户 | 配额统计概览（统计看板的后端数据源，**前端页面尚未开发**） |
+| PATCH | `/auth/users/{user_id}/role` | 管理员 | 修改指定用户角色（FR-USER-06，user/viewer/admin） |
 
 ### 3.3 02 线：文件管理与阅读器（岳）
 
@@ -172,6 +173,22 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 > 检索走的是**主系统表**（`search/service.py` 直接 SQL 查 `pdf_text_index` JOIN `files`），
 > 与 `/ocr/search`（OCR 模块自己的）不是同一条路径。改用哪个需要在契约里明确，避免两套检索结果不一致。
+
+### 3.7 01 线：分享与协作（陈，FR-SHR-01/02/03）
+
+owner 侧需 JWT；被分享者侧凭 token 旁路访问，无需 JWT（见 `core/principal.share_access`，不改 `resolve_principal` 主路径）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/share` | 用户 | 为自有文件创建分享链接（有效期 / 提取码 / 是否允许下载），返回 token 与分享 URL |
+| GET | `/share` | 用户 | 列出我的全部分享链接 |
+| GET | `/share/{share_id}` | 用户 | 分享详情 |
+| DELETE | `/share/{share_id}` | 用户 | 取消分享（FR-SHR-02） |
+| GET | `/share/{share_id}/stats` | 用户 | 访问统计（FR-SHR-03，含 `visit_count`） |
+| GET | `/share/token/{token}` | 公开（token） | 被分享者只读访问；`?code=` 传提取码；`allow_download=false` 时仅返回元数据 |
+
+> 分享不复制文件实体，被分享者只读；文件被彻底删除时分享链接级联清理（`share_links` 表 `ondelete=CASCADE`）。
+> 错误 token / 过期 / 提取码不符统一返回 **404**，避免泄露分享是否存在。
 
 ---
 
