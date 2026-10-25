@@ -17,6 +17,8 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => void;
+  refresh: () => Promise<void>;
+  adoptToken: (token: string) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -49,6 +51,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(result.access_token);
   }, []);
 
+  const refresh = useCallback(async () => {
+    const result = await api<{ access_token: string }>("/auth/refresh", { method: "POST" });
+    tokenStore.set(result.access_token);
+    setToken(result.access_token);
+  }, []);
+
+  const adoptToken = useCallback((value: string) => {
+    tokenStore.set(value);
+    setToken(value);
+  }, []);
+
   const value = useMemo<AuthState>(() => ({
     token,
     me,
@@ -56,11 +69,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login: (email, password) => apply("/auth/login", { email, password }),
     register: (email, password, display_name) => apply("/auth/register", { email, password, display_name }),
     logout: () => {
+      api("/auth/logout", { method: "POST" }).catch(() => {});
       tokenStore.clear();
       setToken("");
       setMe(null);
     },
-  }), [token, me, ready, apply]);
+    refresh,
+    adoptToken,
+  }), [token, me, ready, apply, refresh, adoptToken]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

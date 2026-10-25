@@ -18,7 +18,7 @@
 
 **规则：**
 
-1. **W5 结束前定稿冻结** schema，陈牵头补齐缺口（目前 `share_link` 表在 `pdf_system/docs/DATABASE.md` 已设计，但 `backend/models/` 里**没有对应模型**）
+1. **W5 结束前定稿冻结** schema，陈牵头补齐缺口（`share_link` 表已在 `pdf_system/docs/DATABASE.md` 设计，对应模型 `backend/models/share.py` 已落地）
 2. 冻结后新增/修改字段必须走 PR，合并人在 PR 说明中标注「需重建开发库」
 3. 全组执行 `.\scripts\reset_dev_db.ps1`
 4. 演示前一周停止一切 schema 变更

@@ -26,7 +26,7 @@ pytest==8.4.1
 httpx==0.28.1
 
 # ------------------------------------------------------------
-# Python 3.14 可用版本（本机实测安装成功、18 项测试全绿）
+# Python 3.14 可用版本（沙箱实测安装成功、49 项接口测试全绿：auth/share/quota）
 #   pip install fastapi==0.159.1 uvicorn==0.54.0 SQLAlchemy==2.1.6 \
 #       pydantic==2.14.1 pydantic-settings==2.16.1 PyJWT==2.15.1 \
 #       python-multipart==0.0.32 pypdfium2==5.14.0 Pillow==13.0.0 \

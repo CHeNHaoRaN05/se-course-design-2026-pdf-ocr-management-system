@@ -19,12 +19,12 @@
 
 | 编号 | 任务 | 位置 | 状态 |
 |---|---|---|---|
-| FR-USER-01 | 登出、令牌刷新 | 新建 `auth/router.py` 接口 | 未开工 |
-| FR-USER-02 | 修改密码 | 同上 | 未开工 |
-| FR-USER-03 | 管理员改角色 | `auth/router.py:3` 已标注"W7 补"，用现成 `require_admin`（62–66 行） | 未开工 |
-| FR-USER-04 | 账号禁用 | `models/user.py` 需加字段 → **触发重建开发库** | 未开工 |
-| FR-SHR-01/02/03 | 分享链接（有效期/提取码/允许下载）、取消分享、访问统计 | 新建 `modules/share/{router,service,schemas}.py` + `models/share.py`；`core/principal.py` 加旁路解析函数 | 未开工 |
-| FR-QTA-04 | 统计看板**前端页面** | 新建 `frontend/src/features/stats/StatsPage.tsx`，后端 `/quota/overview` 已就绪 | 未开工 |
+| FR-USER-01 | 登出、令牌刷新 | `POST /auth/logout`、`POST /auth/refresh` | ✅ 已实现（阶段2） |
+| FR-USER-02 | 修改密码 | `POST /auth/change-password`（改密后旧令牌整体失效） | ✅ 已实现（阶段2） |
+| FR-USER-03 | 管理员改角色 | `PATCH /auth/users/{id}/role`，复用 `require_admin` | ✅ 已实现（阶段1） |
+| FR-USER-04 | 账号禁用 | `User.disabled` 字段+拦截（阶段0）；`PATCH /auth/users/{id}/disabled` 管理端点（阶段2） | ✅ 已实现（阶段2） |
+| FR-SHR-01/02/03 | 分享链接（有效期/提取码/允许下载）、取消分享、访问统计 | `modules/share/{router,service,schemas}.py` + `models/share.py`；`core/principal.py` 加旁路解析函数 | ✅ 已实现（阶段1） |
+| FR-QTA-04 | 统计看板**前端页面** | `frontend/src/features/stats/StatsPage.tsx`，后端 `/quota/overview` 已就绪 | ✅ 已实现（阶段2） |
 
 ### 技术要点
 - 分享链接做成**独立 router**，只在 `core/principal.py` 加一个旁路解析函数，不碰主路径

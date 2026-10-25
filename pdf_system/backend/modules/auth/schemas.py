@@ -32,4 +32,18 @@ class UserOut(BaseModel):
     email: str
     display_name: str
     role: str
+    disabled: bool
     created_at: datetime
+
+
+class RoleUpdate(StrictModel):
+    role: Literal["user", "viewer", "admin"]
+
+
+class ChangePasswordIn(StrictModel):
+    old_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class DisabledUpdate(StrictModel):
+    disabled: bool

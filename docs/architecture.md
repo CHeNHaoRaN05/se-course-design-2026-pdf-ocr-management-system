@@ -63,16 +63,16 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 ## 3. 接口总表
 
-共 **48 个接口**（主系统 31 + OCR 模块 17）：
+共 **59 个接口**（主系统 42 + OCR 模块 17）：
 
 | 归属 | 数量 | 小节 |
 |---|---|---|
 | 系统级 | 1 | 3.1 |
-| 01 线 陈（auth + quota） | 6 | 3.2 |
+| 01 线 陈（auth + quota + share） | 17 | 3.2、3.7 |
 | 02 线 岳（files + reader） | 17 | 3.3 |
 | 03 线 黄 · 主系统侧（search + ocr-host） | 7 | 3.4、3.6 |
 | 03 线 黄 · OCR 模块挂载 | 17 | 3.5 |
-| **合计** | **48** | |
+| **合计** | **59** | |
 
 统一前缀 `/api/v1`。权限列含义：
 
@@ -96,7 +96,12 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 | GET | `/auth/me` | 用户 | 当前用户 |
 | GET | `/auth/_admin/check` | 管理员 | 管理员自检端点 |
 | GET | `/quota` | 用户 | 我的配额 |
-| GET | `/quota/overview` | 用户 | 配额统计概览（统计看板的后端数据源，**前端页面尚未开发**） |
+| GET | `/quota/overview` | 用户 | 配额统计概览（统计看板后端数据源，前端页 `features/stats/StatsPage.tsx` 已落地，FR-QTA-04） |
+| PATCH | `/auth/users/{user_id}/role` | 管理员 | 修改指定用户角色（FR-USER-03，user/viewer/admin） |
+| PATCH | `/auth/users/{user_id}/disabled` | 管理员 | 管理员禁用/解禁账号；禁用后其所有令牌立即失效（FR-USER-04） |
+| POST | `/auth/logout` | 用户 | 单点登出，吊销当前令牌（FR-USER-01；其他会话不受影响） |
+| POST | `/auth/refresh` | 用户 | 用当前令牌换新令牌，旧令牌立即失效（FR-USER-01） |
+| POST | `/auth/change-password` | 用户 | 修改密码；成功后全部旧令牌失效并返回新令牌（FR-USER-02） |
 
 ### 3.3 02 线：文件管理与阅读器（岳）
 
@@ -173,6 +178,22 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 > 检索走的是**主系统表**（`search/service.py` 直接 SQL 查 `pdf_text_index` JOIN `files`），
 > 与 `/ocr/search`（OCR 模块自己的）不是同一条路径。改用哪个需要在契约里明确，避免两套检索结果不一致。
 
+### 3.7 01 线：分享与协作（陈，FR-SHR-01/02/03）
+
+owner 侧需 JWT；被分享者侧凭 token 旁路访问，无需 JWT（见 `core/principal.share_access`，不改 `resolve_principal` 主路径）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/share` | 用户 | 为自有文件创建分享链接（有效期 / 提取码 / 是否允许下载），返回 token 与分享 URL |
+| GET | `/share` | 用户 | 列出我的全部分享链接 |
+| GET | `/share/{share_id}` | 用户 | 分享详情 |
+| DELETE | `/share/{share_id}` | 用户 | 取消分享（FR-SHR-02） |
+| GET | `/share/{share_id}/stats` | 用户 | 访问统计（FR-SHR-03，含 `visit_count`） |
+| GET | `/share/token/{token}` | 公开（token） | 被分享者只读访问；`?code=` 传提取码；`allow_download=false` 时仅返回元数据 |
+
+> 分享不复制文件实体，被分享者只读；文件被彻底删除时分享链接级联清理（`share_links` 表 `ondelete=CASCADE`）。
+> 错误 token / 过期 / 提取码不符统一返回 **404**，避免泄露分享是否存在。
+
 ---
 
 ## 4. 前端调用关系
@@ -186,6 +207,7 @@ ReaderPage       ─────────> readerApi.ts  ──> api<T>() ─
                  ─────────> ocrApi.ts     ──> api<T>() ──> /ocr/**, /ocr-host/**
                  ──渲染───> OcrPanel / OcrOverlay（覆盖层，坐标按 C4）
 SearchPage       ─────────> （内联）        ──> api<T>() ──> /search
+StatsPage        ─────────> （内联）        ──> api<T>() ──> /quota/overview
 ```
 
 `shared/http.ts` 是**唯一**的请求出口，禁止各模块自己 `fetch`：
@@ -194,7 +216,7 @@ SearchPage       ─────────> （内联）        ──> api<T>
 - `apiBlob(path)`：用于导出与原文件下载 —— **不能用裸 `<a href>`**，那样带不上 JWT
 - `downloadBlob(blob, filename)`：触发下载
 
-路由仅 4 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`。
+路由共 5 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`、`/stats`（统计看板，线01 陈）。
 **新增页面由陈统一注册路由**，其余人提需求。
 
 ---

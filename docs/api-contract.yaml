@@ -1,5 +1,5 @@
 # API 契约（OpenAPI 3.0 骨架）
-# 与 docs/architecture.md 第 3 节的接口总表一一对应（共 48 个：主系统 31 + OCR 模块 17）。
+# 与 docs/architecture.md 第 3 节的接口总表一一对应（共 59 个：主系统 42 + OCR 模块 17）。
 # 本文件是「契约先行」的载体：改接口先改这里（或对应契约 C*.md）并单独提 PR，确认后再动代码。
 # 详细请求/响应结构以运行时 Swagger（http://127.0.0.1:8000/docs）为准。
 openapi: 3.0.3
@@ -16,6 +16,7 @@ tags:
   - name: system
   - name: auth        # 线01 陈
   - name: quota       # 线01 陈
+  - name: share       # 线01 陈
   - name: files       # 线02 岳
   - name: reader      # 线02 岳
   - name: ocr-host    # 线03 黄（宿主端点）
@@ -55,6 +56,33 @@ paths:
       summary: 管理员自检端点
       x-permission: admin
       responses: { "200": { description: OK } }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: 单点登出，吊销当前令牌（其余会话不受影响）
+      responses: { "204": { description: No Content } }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: 用当前令牌换新令牌，旧令牌立即失效
+      responses: { "200": { description: OK } }
+  /auth/change-password:
+    post:
+      tags: [auth]
+      summary: 修改密码；成功后所有旧令牌失效并返回新令牌
+      responses: { "200": { description: OK } }
+  /auth/users/{user_id}/role:
+    patch:
+      tags: [auth]
+      summary: 管理员修改指定用户角色（user/viewer/admin）
+      x-permission: admin
+      responses: { "200": { description: OK } }
+  /auth/users/{user_id}/disabled:
+    patch:
+      tags: [auth]
+      summary: 管理员禁用/解禁账号；禁用后其所有令牌立即失效
+      x-permission: admin
+      responses: { "200": { description: OK } }
 
   # ── 线01 陈：配额 ──────────────────────────────────────
   /quota:
@@ -67,6 +95,38 @@ paths:
       tags: [quota]
       summary: 配额统计概览（统计看板数据源）
       responses: { "200": { description: OK } }
+
+  # ── 线01 陈：分享与协作（FR-SHR-01/02/03）──────────────
+  /share:
+    post:
+      tags: [share]
+      summary: 创建分享链接（有效期/提取码/允许下载）
+      x-permission: editor
+      responses: { "201": { description: Created } }
+    get:
+      tags: [share]
+      summary: 我的分享列表
+      responses: { "200": { description: OK } }
+  /share/{share_id}:
+    get:
+      tags: [share]
+      summary: 分享详情（仅 owner）
+      responses: { "200": { description: OK }, "404": { description: 越权或不存在 } }
+    delete:
+      tags: [share]
+      summary: 取消分享
+      responses: { "204": { description: No Content } }
+  /share/{share_id}/stats:
+    get:
+      tags: [share]
+      summary: 访问统计
+      responses: { "200": { description: OK } }
+  /share/token/{token}:
+    get:
+      tags: [share]
+      summary: 旁路访问（公开；校验 token/提取码/有效期/allow_download）
+      security: []
+      responses: { "200": { description: OK }, "404": { description: 无效/过期/文件已删 } }
 
   # ── 线02 岳：文件管理 ──────────────────────────────────
   /files:
@@ -296,3 +356,27 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: JWT（HS256）由主系统签发；OCR 模块经 dependency_overrides 复用 resolve_principal 验签（契约 C1）。
+
+  schemas:
+    UserOut:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        display_name: { type: string }
+        role: { type: string, enum: [user, viewer, admin] }
+        disabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+    TokenOut:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string }
+    DisabledUpdate:
+      type: object
+      properties:
+        disabled: { type: boolean }
+    RoleUpdate:
+      type: object
+      properties:
+        role: { type: string, enum: [user, viewer, admin] }
