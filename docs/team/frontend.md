@@ -15,7 +15,7 @@ frontend/src
 ```
 
 - `shared/**` 与 `app/**` 归陈，`types.ts` 按线分区
-- 路由仅 4 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`
+- 路由共 5 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`、`/stats`（统计看板，线01 陈）
 - **新增页面由陈统一注册路由**，其余人提需求
 
 ## 2. 统一约定
@@ -43,6 +43,7 @@ ReaderPage       ─────────> readerApi.ts  ──> api<T>() ─
                  ─────────> ocrApi.ts     ──> api<T>() ──> /ocr/**, /ocr-host/**
                  ──渲染───> OcrPanel / OcrOverlay（覆盖层，坐标按 C4）
 SearchPage       ─────────> （内联）        ──> api<T>() ──> /search
+StatsPage        ─────────> （内联）        ──> api<T>() ──> /quota/overview
 ```
 
 完整接口清单见 [`../architecture.md`](../architecture.md) 第 3 节。

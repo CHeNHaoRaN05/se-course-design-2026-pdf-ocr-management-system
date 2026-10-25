@@ -207,6 +207,7 @@ ReaderPage       ─────────> readerApi.ts  ──> api<T>() ─
                  ─────────> ocrApi.ts     ──> api<T>() ──> /ocr/**, /ocr-host/**
                  ──渲染───> OcrPanel / OcrOverlay（覆盖层，坐标按 C4）
 SearchPage       ─────────> （内联）        ──> api<T>() ──> /search
+StatsPage        ─────────> （内联）        ──> api<T>() ──> /quota/overview
 ```
 
 `shared/http.ts` 是**唯一**的请求出口，禁止各模块自己 `fetch`：
@@ -215,7 +216,7 @@ SearchPage       ─────────> （内联）        ──> api<T>
 - `apiBlob(path)`：用于导出与原文件下载 —— **不能用裸 `<a href>`**，那样带不上 JWT
 - `downloadBlob(blob, filename)`：触发下载
 
-路由仅 4 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`。
+路由共 5 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`、`/stats`（统计看板，线01 陈）。
 **新增页面由陈统一注册路由**，其余人提需求。
 
 ---
