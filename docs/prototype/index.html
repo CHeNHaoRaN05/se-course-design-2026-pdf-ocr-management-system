@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PDF OCR 系统</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#fff; --sidebar:#0f172a; --sidebar-hi:#1e293b;
+    --ink:#0f172a; --muted:#64748b; --line:#e5e7eb; --line-soft:#eef2f7;
+    --brand:#4f46e5; --brand-soft:#eef2ff; --ok:#16a34a; --ok-soft:#dcfce7;
+    --warn:#d97706; --warn-soft:#fef3c7; --err:#dc2626; --err-soft:#fee2e2;
+    --info:#0ea5e9; --info-soft:#e0f2fe; --radius:14px;
+    --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  .app{display:grid;grid-template-columns:248px 1fr;height:100vh;overflow:hidden}
+
+  .sidebar{background:var(--sidebar);color:#e2e8f0;display:flex;flex-direction:column;padding:18px 14px;overflow:auto}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 14px}
+  .brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#6366f1,#4f46e5);display:grid;place-items:center;font-size:18px}
+  .brand b{font-size:15px;color:#fff;font-weight:700}
+  .brand span{display:block;font-size:11px;color:#94a3b8}
+  .nav-group{font-size:11px;color:#64748b;padding:12px 10px 5px;letter-spacing:.6px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;color:#cbd5e1;cursor:pointer;user-select:none;margin-bottom:2px;font-size:13.5px}
+  .nav-item:hover{background:var(--sidebar-hi);color:#fff}
+  .nav-item.active{background:var(--brand);color:#fff;box-shadow:0 6px 16px rgba(79,70,229,.35)}
+  .nav-item .ico{width:18px;text-align:center;font-size:15px}
+  .nav-item .badge{font-size:11px;background:#f59e0b;color:#fff;border-radius:5px;padding:1px 6px;margin-left:auto}
+
+  .main{display:flex;flex-direction:column;overflow:hidden}
+  .topbar{height:60px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px;padding:0 22px}
+  .topbar h1{font-size:16px;margin:0;font-weight:700}
+  .topbar .crumb{color:var(--muted);font-size:12.5px}
+  .topbar .spacer{flex:1}
+  .search{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;width:320px;color:var(--muted)}
+  .search input{border:0;background:transparent;outline:none;flex:1;color:var(--ink);font-size:13px}
+  .avatar{width:34px;height:34px;border-radius:50%;background:#c7d2fe;color:#3730a3;display:grid;place-items:center;font-weight:700}
+
+  .btn{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 14px;border-radius:10px;font-size:13px;cursor:pointer;font-weight:600}
+  .btn:hover{border-color:#cbd5e1;background:#fafafa}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.primary:hover{background:#4338ca}
+  .btn.danger{background:var(--err-soft);border-color:#fca5a5;color:var(--err)}
+  .btn.sm{padding:6px 10px;font-size:12px;border-radius:8px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  .content{overflow:auto;padding:24px;flex:1}
+  .view{display:none;animation:fade .22s ease}
+  .view.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .card .hd{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap;gap:10px}
+  .card .hd h3{margin:0;font-size:14.5px}
+  .card .bd{padding:18px}
+  .row{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+  .row>*{min-width:0}
+  .muted{color:var(--muted)}
+  .tag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)}
+  .tag.warn{background:var(--warn-soft);color:var(--warn)}
+  .tag.err{background:var(--err-soft);color:var(--err)}
+  .tag.info{background:var(--info-soft);color:var(--info)}
+  .tag.idle{background:#f1f5f9;color:#475569}
+  .tag.brand{background:var(--brand-soft);color:var(--brand)}
+  mark{background:#fde68a;padding:0 2px;border-radius:3px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-soft)}
+  th{color:var(--muted);font-weight:600;font-size:12px;background:#fbfcfe}
+  tr:hover td{background:#fafbff}
+  .file-ico{width:30px;height:36px;border-radius:5px;background:var(--err-soft);color:var(--err);display:grid;place-items:center;font-size:11px;font-weight:700}
+  .ops a{color:var(--brand);text-decoration:none;margin-right:10px;font-weight:600;font-size:12.5px;cursor:pointer}
+  .ops a.dis{color:#cbd5e1;cursor:not-allowed}
+
+  .filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .filters select,.filters input{border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;font-size:13px;background:var(--panel)}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);color:var(--brand);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+  .chip.g{background:#f0fdf4;color:#15803d}
+  .chip.r{background:#f5f3ff;color:#7c3aed}
+  .pager{display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:12px 18px;color:var(--muted);font-size:12.5px}
+
+  /* Tree */
+  .tree{padding:10px}
+  .tree .node{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;font-size:13px;cursor:pointer;color:#334155}
+  .tree .node:hover{background:var(--line-soft)}
+  .tree .node.on{background:var(--brand-soft);color:var(--brand);font-weight:700}
+  .tree .node.sub{padding-left:28px;font-size:12.5px;color:var(--muted)}
+
+  /* Upload */
+  .drop{border:2px dashed #c7cdd6;border-radius:16px;padding:36px;text-align:center;background:#fcfdff}
+  .drop .big{font-size:32px}
+  .progress{height:8px;background:#eef2f7;border-radius:99px;overflow:hidden;margin-top:8px}
+  .progress>i{display:block;height:100%;background:var(--brand);width:0;border-radius:99px}
+
+  /* Reader */
+  .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:14px}
+  .toolbar .grp{display:flex;align-items:center;gap:6px;border-right:1px solid var(--line-soft);padding-right:10px}
+  .toolbar .grp:last-child{border-right:0}
+  .toolbar select,.toolbar input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px}
+  .reader{display:grid;grid-template-columns:158px 1fr 340px;gap:16px;height:calc(100vh - 250px)}
+  .thumbs,.outline{overflow:auto;border-right:1px solid var(--line);padding-right:8px}
+  .thumb{border:2px solid transparent;border-radius:8px;margin-bottom:10px;cursor:pointer;overflow:hidden;background:#fff}
+  .thumb.active{border-color:var(--brand)}
+  .thumb .pg{height:92px;background:repeating-linear-gradient(180deg,#fff,#fff 11px,#eef2f7 11px,#eef2f7 12px)}
+  .thumb small{display:block;padding:3px 6px;font-size:11px;color:var(--muted)}
+  .pageview{background:#fff;border:1px solid var(--line);border-radius:12px;display:grid;place-items:center;overflow:auto}
+  .sheet{width:78%;height:88%;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.12);border-radius:4px;position:relative}
+  .bbox{position:absolute;border:1.5px solid var(--brand);background:rgba(79,70,229,.08);font-size:9px;color:var(--brand);padding:1px 3px;border-radius:3px;cursor:pointer}
+  .bbox.warn{border-color:var(--warn);background:rgba(217,119,6,.1);color:var(--warn)}
+  .bbox.ann{border-color:#f59e0b;background:rgba(245,158,11,.22)}
+  .annpin{position:absolute;right:-8px;top:-8px;width:18px;height:18px;border-radius:50%;background:#f59e0b;color:#fff;font-size:11px;display:grid;place-items:center}
+  .sidepanel{display:flex;flex-direction:column;gap:12px;overflow:auto}
+  .kv{display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line-soft);gap:10px}
+  .kv b{color:var(--muted);font-weight:600;flex:none}
+  .kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 6px;font-size:11px;background:#fafafa;color:var(--muted)}
+  .outline a{display:block;padding:6px 10px;border-radius:7px;color:#334155;text-decoration:none;font-size:12.5px;cursor:pointer}
+  .outline a:hover{background:var(--line-soft)}
+  .textlayer{width:78%;padding:18px;background:#fff;border:1px solid var(--line);border-radius:10px}
+
+  /* Proofread */
+  .pf{display:grid;grid-template-columns:1fr 360px;gap:16px;height:calc(100vh - 250px)}
+  .editor{border:1px solid var(--line);border-radius:12px;background:#fff;padding:16px;overflow:auto}
+  .block{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start}
+  .block .n{width:22px;height:22px;border-radius:6px;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
+  .block textarea{width:100%;border:0;resize:vertical;font:inherit;outline:none;color:var(--ink)}
+  .block.hand{border-color:#fbbf24;background:#fffbeb}
+  .block .mini{display:flex;gap:6px;margin-top:6px}
+  .conflict{border:1px solid var(--err);background:var(--err-soft);border-radius:10px;padding:12px 14px;font-size:13px}
+  .conflict b{color:var(--err)}
+
+  table.sheet{border-collapse:collapse;width:100%;font-size:12.5px}
+  table.sheet th,table.sheet td{border:1px solid #cbd5e1;padding:8px 10px}
+  table.sheet th{background:#f1f5f9}
+  td.unrec{background:var(--warn-soft);color:var(--warn);font-style:italic}
+
+  .formats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+  .fmt{border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center;cursor:pointer}
+  .fmt.active{border-color:var(--brand);background:var(--brand-soft)}
+  .fmt .x{font-size:20px}
+  .res{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;cursor:pointer;background:#fff}
+  .res .meta{font-size:11.5px;color:var(--muted);margin-top:4px}
+  .linkbox{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fbfcfe}
+  .linkbox code{flex:1;color:var(--ink);font-size:12.5px;word-break:break-all}
+  .toggle{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+
+  .authwrap{max-width:420px;margin:0 auto;padding:64px 24px}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  .field input{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:13.5px;outline:none}
+  .field input:focus{border-color:var(--brand)}
+  .rule{font-size:12px;color:var(--muted);margin-top:4px}
+
+  .chart{display:flex;align-items:flex-end;gap:10px;height:120px;padding:10px 4px;border-bottom:1px solid var(--line-soft)}
+  .chart .bar{flex:1;background:linear-gradient(180deg,#818cf8,#4f46e5);border-radius:6px 6px 0 0;position:relative}
+  .chart .bar span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:10.5px;color:var(--muted)}
+
+  .banner{background:var(--warn-soft);border:1px solid #fcd34d;color:#92400e;border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .toastbar{background:var(--info-soft);border:1px solid #bae6fd;color:#075985;border-radius:10px;padding:9px 14px;font-size:12.5px;margin-bottom:12px;display:flex;gap:10px;align-items:center}
+  .hint{font-size:12px;color:var(--muted);margin-top:8px}
+  .note{background:var(--info-soft);border:1px solid #bae6fd;color:#075985;border-radius:10px;padding:10px 14px;font-size:12.5px;margin-top:14px}
+  .stat{display:flex;gap:14px;flex-wrap:wrap}
+  .stat .s{flex:1;min-width:140px;border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--panel)}
+  .stat .s .v{font-size:22px;font-weight:800}
+  .stat .s .l{color:var(--muted);font-size:12px;margin-top:2px}
+  .matrix td.y{color:var(--ok);font-weight:700}
+  .matrix td.n{color:#cbd5e1}
+  .sech{font-size:13px;color:var(--muted);margin:22px 0 10px;font-weight:700}
+
+  /* Drawer */
+  .overlay{position:fixed;inset:0;background:rgba(15,23,42,.35);display:none;z-index:40}
+  .overlay.show{display:block}
+  .drawer{position:fixed;right:0;top:0;height:100vh;width:380px;background:#fff;border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,.08);transform:translateX(100%);transition:transform .25s ease;z-index:50;padding:18px;overflow:auto}
+  .drawer.open{transform:none}
+
+  body.plain .sidebar,body.plain .topbar{display:none}
+  body.plain .app{grid-template-columns:1fr}
+  body.plain .content{padding:0}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">📄</div>
+      <div><b>PDF OCR 系统</b><span>v1.0</span></div>
+    </div>
+
+    <div class="nav-group">文档</div>
+    <div class="nav-item active" data-view="lib"><span class="ico">📚</span>文件库</div>
+    <div class="nav-item" data-view="upload"><span class="ico">⬆️</span>上传</div>
+    <div class="nav-item" data-view="trash"><span class="ico">🗑️</span>回收站<span class="badge">3</span></div>
+
+    <div class="nav-group">识别</div>
+    <div class="nav-item" data-view="reader"><span class="ico">📖</span>阅读器</div>
+    <div class="nav-item" data-view="jobs"><span class="ico">⚙️</span>识别任务<span class="badge">2</span></div>
+    <div class="nav-item" data-view="proof"><span class="ico">✏️</span>结果校对</div>
+    <div class="nav-item" data-view="table"><span class="ico">▦</span>表格还原</div>
+    <div class="nav-item" data-view="export"><span class="ico">💾</span>结果导出</div>
+
+    <div class="nav-group">发现</div>
+    <div class="nav-item" data-view="search"><span class="ico">🔍</span>全文检索</div>
+    <div class="nav-item" data-view="share"><span class="ico">🔗</span>分享与协作</div>
+
+    <div class="nav-group">系统</div>
+    <div class="nav-item" data-view="admin"><span class="ico">🛡️</span>用户与角色</div>
+    <div class="nav-item" data-view="stats"><span class="ico">📊</span>配额与统计</div>
+    <div class="nav-item" data-view="logs"><span class="ico">🧾</span>操作日志</div>
+
+    <div class="nav-group">账户</div>
+    <div class="nav-item" data-view="auth"><span class="ico">🔐</span>登录 / 注册</div>
+    <div class="nav-item" onclick="logout()"><span class="ico">⏻</span>退出登录</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div><h1 id="pageTitle">文件库</h1><div class="crumb" id="pageCrumb">文档 / 全部文档</div></div>
+      <div class="spacer"></div>
+      <div class="search">🔍<input placeholder="搜索文档…" /></div>
+      <div class="avatar">Z</div>
+    </div>
+
+    <div class="content">
+
+      <!-- 文件库 -->
+      <section class="view active" id="view-lib">
+        <div class="row" style="align-items:stretch">
+          <div class="card tree" style="width:210px;flex:none">
+            <div class="node on" onclick="treeSel(this)">📁 全部文档</div>
+            <div class="node" onclick="treeSel(this)">📁 财务报告</div>
+            <div class="node sub" onclick="treeSel(this)">2024 年度</div>
+            <div class="node sub" onclick="treeSel(this)">2025 年度</div>
+            <div class="node" onclick="treeSel(this)">📁 设备手册</div>
+            <div class="node" onclick="treeSel(this)">📁 会议记录</div>
+            <div class="node" onclick="treeSel(this)">📁 归档</div>
+            <div style="padding:10px"><button class="btn sm" style="width:100%">+ 新建分类</button></div>
+          </div>
+
+          <div style="flex:1;min-width:0">
+            <div class="stat">
+              <div class="s"><div class="v">1,284</div><div class="l">文档总数</div></div>
+              <div class="s"><div class="v">312</div><div class="l">识别中 / 排队</div></div>
+              <div class="s"><div class="v">936</div><div class="l">已识别</div></div>
+              <div class="s"><div class="v">36</div><div class="l">识别失败</div></div>
+            </div>
+
+            <div class="card" style="margin-top:18px">
+              <div class="hd">
+                <h3>全部文档</h3>
+                <div>
+                  <button class="btn sm" onclick="go('upload')">上传</button>
+                  <button class="btn sm" onclick="batch('move')">移动</button>
+                  <button class="btn sm" onclick="batch('tag')">打标</button>
+                  <button class="btn sm" onclick="batch('delete')" >删除</button>
+                  <button class="btn sm primary" onclick="batch('ocr')">提交识别</button>
+                  <button class="btn sm" onclick="merge('merge')">合并</button>
+                  <button class="btn sm" onclick="merge('split')">拆分</button>
+                </div>
+              </div>
+              <div class="bd" style="padding:14px 18px 0">
+                <div class="filters">
+                  <select><option>类型：全部</option><option>PDF</option><option>图片</option></select>
+                  <select><option>状态：全部</option><option>已识别</option><option>识别中</option><option>部分成功</option><option>失败</option><option>待识别</option></select>
+                  <select><option>标签：全部</option><option>2024</option><option>台账</option><option>待核对</option></select>
+                  <select><option>排序：更新时间</option><option>名称</option><option>大小</option><option>状态</option></select>
+                  <input placeholder="按名称筛选…" style="flex:1;min-width:150px" />
+                  <span class="chip">已选 3 项</span>
+                </div>
+              </div>
+              <div class="bd" style="padding:0">
+                <table>
+                  <thead><tr><th><input type="checkbox" checked/></th><th>名称</th><th>类型</th><th>大小</th><th>页数</th><th>标签</th><th>代次</th><th>识别状态</th><th>更新时间</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr><td><input type="checkbox" checked/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div><a style="color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer" onclick="openDrawer('2024年度财务报告.pdf')">2024年度财务报告.pdf</a></div></div></td><td>PDF</td><td>8.4 MiB</td><td>42</td><td><span class="chip">2024</span></td><td>v3</td><td><span class="tag ok">已识别</span></td><td>10-21 09:12</td><td class="ops"><a onclick="go('reader')">阅读</a><a>重命名</a><a>标签</a><a>识别</a><a>删除</a></td></tr>
+                    <tr><td><input type="checkbox" checked/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div><a style="color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer" onclick="openDrawer('设备手册_维护周期.pdf')">设备手册_维护周期.pdf</a></div></div></td><td>PDF</td><td>15.2 MiB</td><td>88</td><td><span class="chip">台账</span></td><td>v2</td><td><span class="tag warn">部分成功</span></td><td>10-22 14:03</td><td class="ops"><a onclick="go('reader')">阅读</a><a>重命名</a><a>标签</a><a>识别</a><a>删除</a></td></tr>
+                    <tr><td><input type="checkbox" checked/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div><a style="color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer" onclick="openDrawer('会议纪要及时录.pdf')">会议纪要及时录.pdf</a></div></div></td><td>PDF</td><td>2.1 MiB</td><td>6</td><td><span class="chip">待核对</span></td><td>v1</td><td><span class="tag info">识别中</span></td><td>10-29 11:40</td><td class="ops"><a onclick="go('jobs')">进度</a><a>重命名</a><a>标签</a><a>取消</a><a class="dis">删除</a></td></tr>
+                    <tr><td><input type="checkbox"/></td><td><div class="row" style="gap:10px"><div class="file-ico">JPG</div><div><a style="color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer" onclick="openDrawer('现场照片_01.jpg')">现场照片_01.jpg</a></div></div></td><td>图片</td><td>3.7 MiB</td><td>1</td><td>—</td><td>v1</td><td><span class="tag ok">已识别</span></td><td>10-28 16:20</td><td class="ops"><a onclick="go('reader')">阅读</a><a>重命名</a><a>标签</a><a>识别</a><a>删除</a></td></tr>
+                    <tr><td><input type="checkbox"/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div><a style="color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer" onclick="openDrawer('手写笔记扫描件.pdf')">手写笔记扫描件.pdf</a></div></div></td><td>PDF</td><td>5.6 MiB</td><td>12</td><td>—</td><td>v4</td><td><span class="tag err">识别失败</span></td><td>10-20 19:55</td><td class="ops"><a onclick="go('jobs')">重试</a><a>重命名</a><a>标签</a><a>识别</a><a>删除</a></td></tr>
+                    <tr><td><input type="checkbox"/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div><a style="color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer" onclick="openDrawer('空白扫描_低分辨率.pdf')">空白扫描_低分辨率.pdf</a></div></div></td><td>PDF</td><td>0.9 MiB</td><td>2</td><td>—</td><td>—</td><td><span class="tag idle">待识别</span></td><td>10-29 08:02</td><td class="ops"><a>识别</a><a>重命名</a><a>标签</a><a>识别</a><a>删除</a></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="pager"><span>共 1,284 条 · 每页 20 条</span><button class="btn sm">‹</button><button class="btn sm primary">1</button><button class="btn sm">2</button><button class="btn sm">3</button><span>…</span><button class="btn sm">65</button><button class="btn sm">›</button></div>
+            </div>
+
+            <div class="card" style="margin-top:14px"><div class="bd" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <span class="tag ok">✓ 批量提交识别：成功 18 项</span>
+              <span class="tag err">✗ 失败 2 项</span>
+              <span class="muted" style="font-size:12.5px">会议纪要及时录.pdf 存在活动任务；扫描件_大.pdf 页数 120 超过 100 页上限</span>
+            </div></div>
+            <div class="hint">删除前须先取消该文件上正在进行的任务；同名文件上传自动追加序号，不覆盖已有文件。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 上传 -->
+      <section class="view" id="view-upload">
+        <div class="card">
+          <div class="hd"><h3>上传文档</h3><span class="tag brand">单文件 ≤ 20 MiB · ≤ 100 页</span></div>
+          <div class="bd">
+            <div class="drop">
+              <div class="big">⬆️</div>
+              <div style="font-weight:700;margin-top:6px">将文件拖拽到此处，或 <span style="color:var(--brand);cursor:pointer">点击选择</span></div>
+              <div class="muted" style="font-size:12.5px">支持 PDF、PNG、JPG、BMP、TIFF，可一次选择多个文件</div>
+            </div>
+            <div class="sech">上传队列</div>
+            <table>
+              <thead><tr><th>文件</th><th>大小</th><th>进度</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr><td>报告_终稿.pdf</td><td>8.4 MiB</td><td><div class="progress"><i style="width:100%"></i></div></td><td><span class="tag ok">已完成</span></td></tr>
+                <tr><td>现场照片_02.jpg</td><td>4.1 MiB</td><td><div class="progress"><i style="width:62%"></i></div></td><td><span class="tag info">上传中 62%</span></td></tr>
+                <tr><td>大部头扫描.pdf</td><td>21.3 MiB</td><td><div class="progress"><i style="width:0"></i></div></td><td><span class="tag err">已拒绝 · 超出 20 MiB 上限</span></td></tr>
+                <tr><td>加密合同.pdf</td><td>1.8 MiB</td><td><div class="progress"><i style="width:0"></i></div></td><td><span class="tag err">已拒绝 · 文件已加密，请先解除加密</span></td></tr>
+              </tbody>
+            </table>
+            <div class="hint">上传执行扩展名、MIME 与文件头魔数、内容解析三重校验；损坏或无法解析的文件将被拒绝。</div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:16px">
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 10px;font-size:13.5px">识别选项</h3>
+            <div class="kv"><b>识别语言</b> <select style="border:1px solid var(--line);border-radius:8px;padding:5px"><option>中文</option><option>英文</option><option>中英混合</option></select></div>
+            <div class="kv"><b>方向检测</b> <span class="tag ok">开启</span></div>
+            <div class="kv"><b>表格还原</b> <span class="tag idle">关闭（可选）</span></div>
+            <div class="kv"><b>识别范围</b> 整册 / 指定页范围</div>
+            <button class="btn primary sm" style="margin-top:12px">提交识别任务</button>
+          </div></div>
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 10px;font-size:13.5px">当前可用能力</h3>
+            <div class="kv"><b>识别引擎</b> PaddleOCR v4</div>
+            <div class="kv"><b>支持语言</b> 中文、英文、中英混合</div>
+            <div class="kv"><b>方向检测</b> 支持</div>
+            <div class="kv"><b>表格还原</b> 支持</div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 阅读器 -->
+      <section class="view" id="view-reader">
+        <div class="toastbar">🔖 已恢复到上次阅读位置：第 3 页（阅读位置自动记忆）</div>
+        <div class="toolbar">
+          <div class="grp">
+            <select><option>单页</option><option>连续滚动</option></select>
+            <button class="btn sm">‹</button><input value="3" style="width:48px;text-align:center" /><span class="muted">/ 42</span><button class="btn sm">›</button>
+          </div>
+          <div class="grp">
+            <select><option>125%</option><option>50%</option><option>100%</option><option>200%</option><option>400%</option></select>
+            <button class="btn sm">适应宽度</button><button class="btn sm">适应页面</button>
+          </div>
+          <div class="grp">
+            🔍<input id="inpage" placeholder="页内搜索…" style="width:140px" oninput="inpage()" />
+            <span class="muted" id="hitcnt" style="font-size:12px">3 / 8 命中</span>
+          </div>
+          <div class="grp">
+            <button class="btn sm" onclick="ann()">🖍️ 矩形批注</button>
+            <button class="btn sm" onclick="ann()">💬 文字批注</button>
+            <button class="btn sm">🔖 书签</button>
+          </div>
+          <div class="grp">
+            <select id="vmode" onchange="vmode()"><option value="origin">原文视图</option><option value="text">识别文本视图</option></select>
+            <label class="toggle"><input type="checkbox" checked/> 文本层</label>
+          </div>
+          <div class="grp" style="margin-left:auto"><span class="kbd">← →</span> 翻页 <span class="kbd">Ctrl F</span> 搜索 <span class="kbd">Esc</span> 取消</div>
+        </div>
+        <div class="reader">
+          <div>
+            <div class="thumbs" id="thumbs" style="border-right:0"></div>
+          </div>
+          <div class="pageview">
+            <div id="vOrigin" style="width:100%;height:100%;display:grid;place-items:center">
+              <div class="sheet">
+                <div class="bbox" style="left:8%;top:10%;width:40%;height:6%">标题文本</div>
+                <div class="bbox" style="left:8%;top:22%;width:84%;height:5%">段落文本（可选中复制）…</div>
+                <div class="bbox" style="left:8%;top:31%;width:84%;height:5%">段落文本…</div>
+                <div class="bbox ann" style="left:8%;top:40%;width:52%;height:5%">批注：此处需复核<span class="annpin">💬</span></div>
+                <div class="bbox warn" style="left:8%;top:52%;width:60%;height:16%">无线框表格 · 已按行输出为文本</div>
+                <div class="bbox" style="left:8%;top:74%;width:50%;height:5%">脚注…</div>
+              </div>
+            </div>
+            <div id="vText" style="display:none;width:100%;height:100%;display:none;padding:18px;overflow:auto">
+              <div class="textlayer">
+                <div style="font-weight:700;margin-bottom:8px">2024年度财务报告（合并报表）</div>
+                <div style="margin-bottom:8px">本报告所载财务数据已经审计机构核验。</div>
+                <div style="margin-bottom:8px">营业收入较上年增长 12.4%，<mark>净利润</mark>增长 8.7%。</div>
+                <div style="margin-bottom:8px;color:var(--warn)">［无线框表格，未还原］项目 2023 2024 同比 / 营业收入 1,042 1,171 +12.4%</div>
+                <div>资产负债表项目详见附表三。</div>
+              </div>
+            </div>
+          </div>
+          <div class="sidepanel">
+            <div class="card"><div class="bd">
+              <h3 style="margin:0 0 8px;font-size:13.5px">页面信息</h3>
+              <div class="kv"><b>页码</b> 3 / 42</div>
+              <div class="kv"><b>识别状态</b> <span class="tag ok">成功</span></div>
+              <div class="kv"><b>文本块</b> 14</div>
+              <div class="kv"><b>平均置信度</b> 0.96</div>
+            </div></div>
+            <div class="card"><div class="bd">
+              <h3 style="margin:0 0 6px;font-size:13.5px">目录大纲</h3>
+              <div class="outline">
+                <a onclick="go('reader')">1 公司概况</a>
+                <a onclick="go('reader')">2 财务摘要</a>
+                <a style="background:var(--brand-soft);color:var(--brand);font-weight:700">3 经营情况讨论</a>
+                <a onclick="go('reader')">4 风险因素</a>
+                <a onclick="go('reader')">5 财务报表附注</a>
+              </div>
+            </div></div>
+            <div class="card"><div class="bd">
+              <h3 style="margin:0 0 8px;font-size:13.5px">批注（2）</h3>
+              <div class="kv"><b>💬 文字批注</b> 此处需复核</div>
+              <div class="kv"><b>🖍️ 高亮</b> 净利润数据</div>
+              <button class="btn sm" style="margin-top:8px" onclick="go('proof')">前往校对</button>
+            </div></div>
+            <div class="card"><div class="bd">
+              <h3 style="margin:0 0 8px;font-size:13.5px">整册进度</h3>
+              <div class="kv"><b>已识别</b> 38 / 42 页</div>
+              <div class="kv"><b>部分成功</b> 2 页</div>
+              <div class="kv"><b>失败</b> 2 页</div>
+              <div class="progress" style="margin-top:8px"><i style="width:90%"></i></div>
+            </div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 识别任务 -->
+      <section class="view" id="view-jobs">
+        <div class="stat">
+          <div class="s"><div class="v">2</div><div class="l">运行中</div></div>
+          <div class="s"><div class="v">5</div><div class="l">排队中</div></div>
+          <div class="s"><div class="v">1,277</div><div class="l">今日已完成</div></div>
+          <div class="s"><div class="v">4</div><div class="l">Worker 并发（可配置）</div></div>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <div class="hd"><h3>识别任务</h3><div><button class="btn sm">刷新</button><button class="btn sm primary" onclick="go('upload')">新建任务</button></div></div>
+          <div class="bd" style="padding:0">
+            <table>
+              <thead><tr><th>任务标识</th><th>文件</th><th>代次</th><th>范围</th><th>进度</th><th>尝试</th><th>状态</th><th>提交时间</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>#T-20261029-0041</td><td>会议纪要及时录.pdf</td><td>v1</td><td>整册 · 6 页</td><td><div class="progress" style="margin:0"><i style="width:66%"></i></div></td><td>1 / 3</td><td><span class="tag info">运行中</span></td><td>11:40</td><td class="ops"><a>取消</a><a>详情</a></td></tr>
+                <tr><td>#T-20261029-0040</td><td>季度经营分析.pdf</td><td>v2</td><td>1–10 页</td><td><div class="progress" style="margin:0"><i style="width:30%"></i></div></td><td>1 / 3</td><td><span class="tag info">运行中</span></td><td>11:36</td><td class="ops"><a>取消</a><a>详情</a></td></tr>
+                <tr><td>#T-20261029-0038</td><td>设备手册_维护周期.pdf</td><td>v2</td><td>整册 · 88 页</td><td><div class="progress" style="margin:0"><i style="width:100%"></i></div></td><td>2 / 3</td><td><span class="tag warn">部分成功</span></td><td>10:02</td><td class="ops"><a>整册重试</a><a>按页重试</a><a onclick="go('proof')">校对</a></td></tr>
+                <tr><td>#T-20261028-0115</td><td>手写笔记扫描件.pdf</td><td>v4</td><td>整册 · 12 页</td><td><div class="progress" style="margin:0"><i style="width:100%;background:var(--err)"></i></div></td><td>3 / 3</td><td><span class="tag err">失败</span></td><td>10-28 22:10</td><td class="ops"><a>整册重试</a><a>查看失败原因</a></td></tr>
+                <tr><td>#T-20261028-0098</td><td>旧版说明书.pdf</td><td>v1</td><td>整册 · 30 页</td><td><div class="progress" style="margin:0"><i style="width:0"></i></div></td><td>0 / 3</td><td><span class="tag idle">已取消</span></td><td>10-28 19:30</td><td class="ops"><a>重新提交</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="row" style="margin-top:16px">
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 10px;font-size:13.5px">失败原因</h3>
+            <div class="kv"><b>#T-20261028-0115</b> <span class="tag err">E_PDF_INVALID</span></div>
+            <div class="muted" style="font-size:12.5px">第 7–9 页无法解析：文件内容损坏。请重新上传该页或联系管理员。</div>
+            <div class="kv" style="margin-top:8px"><b>质量提示</b> <span class="tag warn">低于 150 dpi</span></div>
+            <div class="muted" style="font-size:12.5px">空白扫描_低分辨率.pdf 分辨率不足，识别准确率可能下降。</div>
+          </div></div>
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 10px;font-size:13.5px">任务规则</h3>
+            <div class="muted" style="font-size:12.5px">同一文件同时只允许存在一个活动任务；每次新建任务文件代次 +1，旧代次结果不会被覆盖。失败任务最多重试 3 次，任务租约 120 秒超时自动回收。</div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 结果校对 -->
+      <section class="view" id="view-proof">
+        <div class="toastbar">✅ 任务 #T-20261029-0038 已处于终态，可开始校对（当前代次 v2）</div>
+        <div class="pf">
+          <div class="editor">
+            <div style="font-weight:700;margin-bottom:10px">第 3 页 · 识别框对照校对</div>
+            <div class="block"><div class="n">1</div><div style="flex:1"><textarea rows="2">2024年度财务报告（合并报表）</textarea><div class="mini"><button class="btn sm">合并上一行</button><button class="btn sm">拆分</button><button class="btn sm">↑</button><button class="btn sm">↓</button><button class="btn sm danger">删除框</button></div></div></div>
+            <div class="block"><div class="n">2</div><div style="flex:1"><textarea rows="2">本报告所载财务数据已经审计机构核验。</textarea><div class="mini"><button class="btn sm">合并上一行</button><button class="btn sm">拆分</button><button class="btn sm">↑</button><button class="btn sm">↓</button><button class="btn sm danger">删除框</button></div></div></div>
+            <div class="block"><div class="n">3</div><div style="flex:1"><textarea rows="2">营业收入较上年增长 12.4%，净利润增长 8.7%。</textarea><div class="mini"><button class="btn sm">合并上一行</button><button class="btn sm">拆分</button><button class="btn sm">↑</button><button class="btn sm">↓</button><button class="btn sm danger">删除框</button></div></div></div>
+            <div class="block hand"><div class="n">4</div><div style="flex:1"><textarea rows="2">［疑似手写内容］请核对第 18 页附注。</textarea><div class="hint">手写内容按印刷体模型尽力识别，请重点复核。</div><div class="mini"><button class="btn sm">合并上一行</button><button class="btn sm">拆分</button><button class="btn sm">↑</button><button class="btn sm">↓</button><button class="btn sm danger">删除框</button></div></div></div>
+            <div class="block"><div class="n">5</div><div style="flex:1"><textarea rows="2">资产负债表项目详见附表三。</textarea><div class="mini"><button class="btn sm">合并上一行</button><button class="btn sm">拆分</button><button class="btn sm">↑</button><button class="btn sm">↓</button><button class="btn sm danger">删除框</button></div></div></div>
+            <div class="hint">可调整阅读顺序以保证导出文本顺序正确；每次成功保存修订号 +1，并同步更新该页全文索引。</div>
+          </div>
+          <div class="sidepanel">
+            <div class="card"><div class="bd">
+              <h3 style="margin:0 0 8px;font-size:13.5px">修订信息</h3>
+              <div class="kv"><b>当前修订号</b> Rev 4</div>
+              <div class="kv"><b>期望修订号</b> expected_revision = 4</div>
+              <div class="kv"><b>校对权限</b> <span class="tag ok">文件归属者</span></div>
+              <div class="row" style="margin-top:10px;gap:8px">
+                <button class="btn primary sm" onclick="trySave()">保存修订</button>
+                <button class="btn sm">撤销未保存修改</button>
+              </div>
+            </div></div>
+            <div class="conflict" id="conflict" style="display:none"><b>⚠ 内容已被他人更新</b><br/>服务端最新修订号为 Rev 5，请合并后重新提交。</div>
+            <div class="card"><div class="bd">
+              <h3 style="margin:0 0 8px;font-size:13.5px">原文对照</h3>
+              <div class="sheet" style="height:150px;box-shadow:none;border:1px solid var(--line);width:100%">
+                <div class="bbox" style="left:8%;top:14%;width:50%;height:8%">框 3</div>
+                <div class="bbox" style="left:8%;top:40%;width:60%;height:8%">框 4</div>
+              </div>
+              <div class="hint">点击识别框可定位原文位置，实现图文对照。</div>
+            </div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 表格还原 -->
+      <section class="view" id="view-table">
+        <div class="row">
+          <div class="card" style="flex:2"><div class="bd">
+            <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+              <h3 style="margin:0;font-size:13.5px">表格结构（第 12 页 · 完整线框）</h3>
+              <span class="tag ok">已还原 3 × 4</span>
+            </div>
+            <table class="sheet"><thead><tr><th>项目</th><th>2023</th><th>2024</th><th>同比</th></tr></thead>
+              <tbody><tr><td>营业收入</td><td>1,042</td><td>1,171</td><td>+12.4%</td></tr>
+              <tr><td>营业成本</td><td>720</td><td>801</td><td>+11.3%</td></tr>
+              <tr><td>净利润</td><td>96</td><td>104</td><td>+8.7%</td></tr></tbody></table>
+            <div class="hint">点击单元格可手工修正文本归属；可导出为 CSV / XLSX。</div>
+          </div></div>
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 10px;font-size:13.5px">未能还原的表格</h3>
+            <table class="sheet"><tbody><tr><td class="unrec">未还原 · 无线框表格（第 3 页）</td></tr><tr><td>已按行聚类输出为纯文本</td></tr></tbody></table>
+            <div class="kv" style="margin-top:10px"><b>合并单元格（第 8 页）</b> <span class="tag warn">需人工确认</span></div>
+            <div class="muted" style="font-size:12.5px">分隔线不完整，已拒绝自动还原，未臆造单元格。</div>
+            <div class="kv" style="margin-top:10px"><b>行列上限</b> 50 行 × 100 列</div>
+          </div></div>
+        </div>
+        <div class="card" style="margin-top:18px"><div class="bd"><div class="row" style="justify-content:space-between;align-items:center">
+          <div><b>导出表格结果</b><div class="muted" style="font-size:12px">导出为 CSV / XLSX，保留单元格归属</div></div>
+          <div><button class="btn sm">导出 CSV</button><button class="btn sm primary" onclick="go('export')">导出 XLSX</button></div>
+        </div></div></div>
+      </section>
+
+      <!-- 结果导出 -->
+      <section class="view" id="view-export">
+        <div class="card"><div class="bd">
+          <h3 style="margin:0 0 4px;font-size:14px">导出识别结果</h3>
+          <div class="muted" style="font-size:12.5px;margin-bottom:14px">内容取自当前代次的成功页结果；失败页不会出现在导出结果中，将单独列出。</div>
+          <div class="formats" id="fmts">
+            <div class="fmt active" data-f="txt"><div class="x">📃</div>TXT</div>
+            <div class="fmt" data-f="json"><div class="x">🔧</div>JSON</div>
+            <div class="fmt" data-f="csv"><div class="x">📊</div>CSV</div>
+            <div class="fmt" data-f="html"><div class="x">🌐</div>HTML</div>
+            <div class="fmt" data-f="xlsx"><div class="x">📈</div>XLSX</div>
+          </div>
+          <div class="row" style="margin-top:18px">
+            <div style="flex:1;min-width:220px">
+              <div class="kv"><b>导出范围</b> <select style="border:1px solid var(--line);border-radius:8px;padding:5px"><option>整册</option><option>指定页范围</option></select></div>
+              <div class="kv"><b>页范围</b> 1 – 42（单次上限 100 页）</div>
+              <div class="kv"><b>包含坐标</b> <input type="checkbox" checked/></div>
+              <div class="kv"><b>文件命名</b> <code style="font-size:12px">2024年度财务报告_20261029_1530.xlsx</code></div>
+            </div>
+            <div style="flex:1;min-width:220px">
+              <div class="card" style="box-shadow:none"><div class="bd" style="padding:14px">
+                <b style="font-size:13px">安全处理</b>
+                <div class="muted" style="font-size:12.5px;margin-top:6px">HTML 与 XLSX 导出自动做转义；以 = + - @ 开头的单元格内容前补单引号，避免被当作公式执行。</div>
+              </div></div>
+            </div>
+          </div>
+          <div class="row" style="margin-top:16px;align-items:center">
+            <span class="tag warn">失败页 2 页（第 7、9 页）将单独列出，不包含在导出内容中</span>
+            <button class="btn primary" style="margin-left:auto" onclick="exportIt()">开始导出</button>
+          </div>
+          <div class="hint" id="exphint">当前格式：XLSX · 流式下载，不在服务端生成临时文件</div>
+        </div></div>
+      </section>
+
+      <!-- 全文检索 -->
+      <section class="view" id="view-search">
+        <div class="card"><div class="bd">
+          <div class="search" style="width:100%">🔍<input placeholder="搜索已识别文本，关键词至少 2 个字符…" value="净利润"/></div>
+          <div class="filters" style="margin-top:12px">
+            <select><option>类型：全部</option><option>PDF</option><option>图片</option></select>
+            <select><option>时间：全部</option><option>近 7 天</option><option>近 30 天</option></select>
+            <select><option>标签：全部</option><option>2024</option><option>台账</option></select>
+            <button class="btn sm primary">检索</button>
+          </div>
+          <div class="sech">命中 3 个文档 · 共 8 处 · 仅包含您有权访问的文档</div>
+          <div class="res" onclick="go('reader')"><b>2024年度财务报告.pdf</b><span class="chip r" style="margin-left:8px">命中 3 页</span><div class="meta">…营业收入较上年增长 12.4%，<mark>净利润</mark>增长 8.7%…　来源任务 #T-20261029-0038 · Rev 4</div></div>
+          <div class="res" onclick="go('reader')"><b>2024年度财务报告.pdf</b><span class="chip r" style="margin-left:8px">第 18 页</span><div class="meta">附注：本期<mark>净利润</mark>包含一次性收益 3.2 亿元…　来源任务 #T-20261029-0038 · Rev 4</div></div>
+          <div class="res" onclick="go('reader')"><b>季度经营分析.pdf</b><span class="chip r" style="margin-left:8px">第 2 页</span><div class="meta">管理层讨论：<mark>净利润</mark>率维持稳定…　来源任务 #T-20261029-0040 · Rev 2 · 结果可能已过时</div></div>
+          <div class="sech">检索历史</div>
+          <div class="row" style="gap:8px">
+            <span class="chip">净利润 ×</span><span class="chip">维护周期 ×</span><span class="chip">验收报告 ×</span><span class="chip">设备编号 ×</span>
+          </div>
+          <div class="toastbar" style="margin-top:14px">ℹ️ 关键词为单字时已降级为子串匹配，结果可能较多。</div>
+        </div></div>
+      </section>
+
+      <!-- 分享与协作 -->
+      <section class="view" id="view-share">
+        <div class="row">
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 12px;font-size:13.5px">创建分享链接</h3>
+            <div class="kv"><b>文档</b> 设备手册_维护周期.pdf</div>
+            <div class="kv"><b>有效期</b> <select style="border:1px solid var(--line);border-radius:8px;padding:5px"><option>7 天</option><option>1 天</option><option>30 天</option></select></div>
+            <div class="kv"><b>允许下载</b> <input type="checkbox"/> 禁止下载</div>
+            <button class="btn primary" style="margin-top:14px" onclick="genLink()">生成链接</button>
+            <div class="linkbox" id="linkbox" style="margin-top:12px"><code>https://ocr.app/s/9f3ac1b2…（64 位令牌）</code><button class="btn sm" onclick="copyLink()">复制</button><button class="btn sm" onclick="go('guest')">预览访问页</button></div>
+            <div class="hint">分享不复制文件实体，所有访问指向同一份存储对象。</div>
+          </div></div>
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 12px;font-size:13.5px">我的分享</h3>
+            <div class="kv"><b>设备手册_维护周期.pdf</b> <span class="tag ok">有效 · 剩 6 天</span></div>
+            <div class="kv"><b>访问次数</b> 27 次</div>
+            <div class="kv"><b>最近访问</b> 今天 10:12</div>
+            <div class="kv"><b>下载</b> 已禁止</div>
+            <button class="btn sm danger" style="margin-top:8px" onclick="revoke()">取消分享</button>
+            <div class="hint" id="revhint">取消后立即失效；过期或已撤销的链接不可访问。</div>
+            <div class="kv" style="margin-top:10px"><b>季度经营分析.pdf</b> <span class="tag idle">已撤销</span></div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 用户与角色 -->
+      <section class="view" id="view-admin">
+        <div class="card">
+          <div class="hd"><h3>用户与角色</h3><div><button class="btn sm">+ 新建用户</button><button class="btn sm primary">保存变更</button></div></div>
+          <div class="bd" style="padding:0">
+            <table><thead><tr><th>用户名</th><th>邮箱</th><th>角色</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>admin_ops</td><td>ops@example.com</td><td><select style="border:1px solid var(--line);border-radius:8px;padding:5px"><option>管理员</option><option>普通用户</option><option>只读用户</option></select></td><td><span class="tag ok">启用</span></td><td>今天 09:02</td><td class="ops"><a>改密</a><a>禁用</a><a>删除</a></td></tr>
+                <tr><td>zhangsan</td><td>zs@example.com</td><td><select style="border:1px solid var(--line);border-radius:8px;padding:5px"><option>普通用户</option><option>管理员</option><option>只读用户</option></select></td><td><span class="tag ok">启用</span></td><td>今天 11:40</td><td class="ops"><a>改密</a><a>禁用</a><a>删除</a></td></tr>
+                <tr><td>viewer_guest</td><td>guest@example.com</td><td><select style="border:1px solid var(--line);border-radius:8px;padding:5px"><option selected>只读用户</option><option>普通用户</option><option>管理员</option></select></td><td><span class="tag ok">启用</span></td><td>昨天 16:33</td><td class="ops"><a>改密</a><a>禁用</a><a>删除</a></td></tr>
+                <tr><td>temp_intern</td><td>—</td><td><select style="border:1px solid var(--line);border-radius:8px;padding:5px"><option>只读用户</option><option>普通用户</option><option>管理员</option></select></td><td><span class="tag err">锁定 10 分钟</span></td><td>今天 11:02</td><td class="ops"><a>解锁</a><a>禁用</a><a>删除</a></td></tr>
+              </tbody></table>
+          </div>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <div class="hd"><h3>角色权限</h3><span class="tag idle">user / viewer / admin</span></div>
+          <div class="bd" style="padding:0">
+            <table class="matrix"><thead><tr><th>能力</th><th>管理员</th><th>普通用户</th><th>只读用户 viewer</th></tr></thead>
+              <tbody>
+                <tr><td>上传 / 重命名 / 删除文档</td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+                <tr><td>发起 / 取消 / 重试识别</td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+                <tr><td>结果校对</td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+                <tr><td>导出 / 分享</td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+                <tr><td>阅读 / 检索 / 批注</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+                <tr><td>配额与日志管理</td><td class="y">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+                <tr><td>用户与角色管理</td><td class="y">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+              </tbody></table>
+          </div>
+        </div>
+        <div class="hint">只读用户的一切写操作在鉴权层被拒绝；禁用账号后其令牌立即失效。</div>
+      </section>
+
+      <!-- 配额与统计 -->
+      <section class="view" id="view-stats">
+        <div class="row">
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 12px;font-size:13.5px">配额使用</h3>
+            <div class="kv"><b>存储容量</b> 3.2 GiB / 10 GiB</div>
+            <div class="progress"><i style="width:32%"></i></div>
+            <div class="kv" style="margin-top:12px"><b>本月识别页数</b> 4,820 / 6,000 页</div>
+            <div class="progress"><i style="width:80%;background:var(--warn)"></i></div>
+            <div class="hint">入队前预留配额，超额将被拦截；任务取消时退还预量。剩余页数不足时请分批提交。</div>
+          </div></div>
+          <div class="card" style="flex:1"><div class="bd">
+            <h3 style="margin:0 0 12px;font-size:13.5px">使用统计</h3>
+            <div class="kv"><b>文件数</b> 1,284</div>
+            <div class="kv"><b>本月识别页数</b> 4,820</div>
+            <div class="kv"><b>识别成功率</b> 96.3%</div>
+            <div class="kv"><b>平均耗时</b> 1.8 s / 页</div>
+            <div class="kv"><b>存储占用</b> 3.2 GiB</div>
+            <div class="hint">统计按日聚合，看板数据允许 1 小时以内延迟。</div>
+          </div></div>
+        </div>
+        <div class="card" style="margin-top:18px"><div class="bd">
+          <h3 style="margin:0 0 6px;font-size:13.5px">近 7 日识别页数</h3>
+          <div class="chart">
+            <div class="bar" style="height:55%"><span>10-23</span></div>
+            <div class="bar" style="height:72%"><span>10-24</span></div>
+            <div class="bar" style="height:40%"><span>10-25</span></div>
+            <div class="bar" style="height:88%"><span>10-26</span></div>
+            <div class="bar" style="height:64%"><span>10-27</span></div>
+            <div class="bar" style="height:95%"><span>10-28</span></div>
+            <div class="bar" style="height:48%"><span>10-29</span></div>
+          </div>
+          <div style="height:16px"></div>
+        </div></div>
+      </section>
+
+      <!-- 操作日志 -->
+      <section class="view" id="view-logs">
+        <div class="card">
+          <div class="hd"><h3>操作日志</h3><div><button class="btn sm">导出 CSV</button></div></div>
+          <div class="bd" style="padding:14px 18px 0">
+            <div class="filters">
+              <select><option>用户：全部</option><option>admin_ops</option><option>zhangsan</option><option>viewer_guest</option></select>
+              <select><option>动作：全部</option><option>上传</option><option>删除</option><option>识别</option><option>校对</option><option>导出</option><option>分享访问</option></select>
+              <select><option>时间：近 7 天</option><option>近 30 天</option><option>自定义</option></select>
+              <input placeholder="按资源筛选…" style="flex:1;min-width:150px" />
+              <button class="btn sm primary">查询</button>
+            </div>
+          </div>
+          <div class="bd" style="padding:0">
+            <table><thead><tr><th>时间</th><th>用户</th><th>动作</th><th>资源</th><th>结果</th><th>IP</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>10-29 11:41</td><td>zhangsan</td><td>识别</td><td>会议纪要及时录.pdf</td><td><span class="tag ok">成功</span></td><td>10.0.0.7</td><td class="ops"><a>详情</a></td></tr>
+                <tr><td>10-29 11:36</td><td>zhangsan</td><td>校对 page_corrected</td><td>设备手册 · 第 3 页</td><td><span class="tag ok">成功 · Rev 5</span></td><td>10.0.0.7</td><td class="ops"><a>详情</a></td></tr>
+                <tr><td>10-29 10:12</td><td>游客</td><td>分享访问 share_access</td><td>设备手册_维护周期.pdf</td><td><span class="tag ok">成功</span></td><td>203.0.113.9</td><td class="ops"><a>详情</a></td></tr>
+                <tr><td>10-28 22:14</td><td>viewer_guest</td><td>导出</td><td>季度经营分析.pdf</td><td><span class="tag err">403 已拒绝</span></td><td>10.0.0.9</td><td class="ops"><a>详情</a></td></tr>
+                <tr><td>10-28 19:30</td><td>admin_ops</td><td>删除</td><td>旧版说明书.pdf</td><td><span class="tag ok">成功</span></td><td>10.0.0.3</td><td class="ops"><a>详情</a></td></tr>
+                <tr><td>10-28 09:05</td><td>zhangsan</td><td>识别</td><td>扫描件_大.pdf</td><td><span class="tag warn">429 配额不足</span></td><td>10.0.0.7</td><td class="ops"><a>详情</a></td></tr>
+              </tbody></table>
+          </div>
+          <div class="pager">日志只追加不可修改，保留 180 天；不记录文件正文与令牌。</div>
+        </div>
+      </section>
+
+      <!-- 回收站 -->
+      <section class="view" id="view-trash">
+        <div class="card">
+          <div class="hd"><h3>回收站</h3><div><button class="btn sm">恢复选中</button><button class="btn sm danger" onclick="purge()">彻底删除</button></div></div>
+          <div class="bd" style="padding:0">
+            <table><thead><tr><th><input type="checkbox"/></th><th>名称</th><th>大小</th><th>删除时间</th><th>剩余保留</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td><input type="checkbox"/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div>旧版说明书.pdf</div></div></td><td>3.4 MiB</td><td>10-28 19:30</td><td><span class="tag warn">29 天</span></td><td class="ops"><a>恢复</a><a>彻底删除</a></td></tr>
+                <tr><td><input type="checkbox"/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div>草稿_未定稿.pdf</div></div></td><td>1.1 MiB</td><td>10-27 08:12</td><td><span class="tag warn">28 天</span></td><td class="ops"><a>恢复</a><a>彻底删除</a></td></tr>
+                <tr><td><input type="checkbox"/></td><td><div class="row" style="gap:10px"><div class="file-ico">PDF</div><div>临时测试.pdf</div></div></td><td>0.4 MiB</td><td>09-30 15:02</td><td><span class="tag err">已到期</span></td><td class="ops"><a class="dis">恢复</a><a>彻底删除</a></td></tr>
+              </tbody></table>
+          </div>
+          <div class="pager">删除的文件保留 30 天，到期后由系统物理清除；存在活动任务的文件不可删除。</div>
+        </div>
+      </section>
+
+      <!-- 登录 / 注册 -->
+      <section class="view" id="view-auth">
+        <div class="authwrap">
+          <div class="card"><div class="bd">
+            <div style="text-align:center;margin-bottom:18px"><div style="font-size:32px">📄</div><h3 style="margin:6px 0 2px;font-size:17px">PDF OCR 系统</h3><div class="muted" style="font-size:12.5px">登录后管理文档、发起识别与校对</div></div>
+            <div class="tabs"><button class="btn sm primary" id="tLogin" onclick="authTab('login')">登录</button><button class="btn sm" id="tReg" onclick="authTab('reg')">注册</button></div>
+            <div id="fLogin">
+              <div class="field"><label>用户名</label><input placeholder="请输入用户名" /></div>
+              <div class="field"><label>密码</label><input type="password" placeholder="请输入密码" /></div>
+              <button class="btn primary" style="width:100%" onclick="doLogin()">登录</button>
+              <div class="row" style="justify-content:space-between;margin-top:10px"><span class="muted" style="font-size:12.5px">忘记密码？</span><span class="muted" style="font-size:12.5px">联系管理员重置</span></div>
+            </div>
+            <div id="fReg" style="display:none">
+              <div class="field"><label>用户名</label><input placeholder="4–32 字符，字母、数字或下划线" /><div class="rule">用户名长度 4–32 字符，仅允许字母、数字与下划线，全库唯一。</div></div>
+              <div class="field"><label>密码</label><input type="password" placeholder="至少 8 位" /><div class="rule">密码至少 8 位，且须同时包含字母与数字。</div></div>
+              <div class="field"><label>确认密码</label><input type="password" placeholder="请再次输入密码" /></div>
+              <div class="field"><label>邮箱（可选）</label><input placeholder="you@example.com" /></div>
+              <button class="btn primary" style="width:100%" onclick="doReg()">注册</button>
+              <div class="rule" style="margin-top:8px">注册成功后自动分配「普通用户」角色。</div>
+            </div>
+          </div></div>
+          <div class="card" style="margin-top:14px"><div class="bd" style="padding:14px 18px">
+            <div class="muted" style="font-size:12.5px">为保护账号安全，同一账号连续 5 次登录失败后将锁定 10 分钟。</div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- 游客只读访问 -->
+      <section class="view" id="view-guest">
+        <div style="max-width:1100px;margin:0 auto;padding:24px">
+          <div class="banner">🔒<div><b>只读访问</b><div style="font-size:12.5px">您正通过分享链接访问「设备手册_维护周期.pdf」· 剩 6 天失效 · 已禁止下载</div></div></div>
+          <div class="row" style="align-items:stretch">
+            <div class="card" style="width:150px;flex:none"><div class="thumbs" style="border:0;padding:10px">
+              <div class="thumb active"><div class="pg"></div><small>第 1 页</small></div>
+              <div class="thumb"><div class="pg"></div><small>第 2 页</small></div>
+              <div class="thumb"><div class="pg"></div><small>第 3 页</small></div>
+            </div></div>
+            <div class="card" style="flex:1"><div class="pageview" style="border:0;height:520px">
+              <div class="sheet">
+                <div class="bbox" style="left:8%;top:12%;width:44%;height:6%">维护周期说明</div>
+                <div class="bbox" style="left:8%;top:26%;width:84%;height:5%">正文段落…</div>
+                <div class="bbox warn" style="left:8%;top:40%;width:60%;height:16%">无线框表格 · 已按行输出为文本</div>
+              </div>
+            </div></div>
+            <div class="card" style="width:280px;flex:none"><div class="bd">
+              <h3 style="margin:0 0 8px;font-size:13.5px">文档信息</h3>
+              <div class="kv"><b>页数</b> 88</div>
+              <div class="kv"><b>身份</b> <span class="tag idle">游客</span></div>
+              <div class="kv"><b>下载</b> <span class="tag err">已禁止</span></div>
+              <div class="sech" style="margin:14px 0 8px">可用操作</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn sm">🔍 页内搜索</button>
+                <button class="btn sm">📖 阅读</button>
+                <button class="btn sm" disabled>💾 导出</button>
+                <button class="btn sm" disabled>✏️ 校对</button>
+              </div>
+              <div class="hint">被分享者仅可只读访问。</div>
+            </div></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h3 style="margin:0;font-size:15px" id="dTitle">文件信息</h3>
+    <button class="btn sm" onclick="closeDrawer()">关闭</button>
+  </div>
+  <div class="kv"><b>名称</b> <span id="dName">—</span></div>
+  <div class="kv"><b>类型</b> PDF</div>
+  <div class="kv"><b>大小</b> 8.4 MiB</div>
+  <div class="kv"><b>页数</b> 42</div>
+  <div class="kv"><b>识别状态</b> <span class="tag ok">已识别</span></div>
+  <div class="kv"><b>当前代次</b> v3</div>
+  <div class="kv"><b>创建时间</b> 2026-10-21 09:12</div>
+  <div class="kv"><b>SHA256</b> <code style="font-size:11px">a3f1…9c2e</code></div>
+  <div class="kv"><b>所属分类</b> 财务报告 / 2024 年度</div>
+  <div class="kv"><b>标签</b> <span class="chip">2024</span></div>
+  <div class="row" style="margin-top:14px;gap:8px">
+    <button class="btn sm" onclick="go('reader')">阅读</button>
+    <button class="btn sm" onclick="go('proof')">校对</button>
+    <button class="btn sm" onclick="go('export')">导出</button>
+  </div>
+</div>
+
+<script>
+  const titles={
+    lib:["文件库","文档 / 全部文档"],upload:["上传","文档 / 上传"],trash:["回收站","文档 / 回收站"],
+    reader:["阅读器","识别 / 阅读器"],jobs:["识别任务","识别 / 任务中心"],proof:["结果校对","识别 / 结果校对"],
+    table:["表格还原","识别 / 表格还原"],export:["结果导出","识别 / 结果导出"],
+    search:["全文检索","发现 / 全文检索"],share:["分享与协作","发现 / 分享与协作"],
+    admin:["用户与角色","系统 / 用户与角色"],stats:["配额与统计","系统 / 配额与统计"],logs:["操作日志","系统 / 操作日志"],
+    auth:["登录 / 注册","账户 / 登录"],guest:["只读访问","分享 / 只读访问"]
+  };
+  function go(v){
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===v));
+    document.querySelectorAll('.view').forEach(s=>s.classList.remove('active'));
+    document.getElementById('view-'+v).classList.add('active');
+    document.getElementById('pageTitle').textContent=titles[v][0]||'';
+    document.getElementById('pageCrumb').textContent=titles[v][1]||'';
+    document.body.classList.toggle('plain',v==='auth'||v==='guest');
+    document.querySelector('.content').scrollTop=0;
+  }
+  document.querySelectorAll('.nav-item').forEach(n=>{if(n.dataset.view)n.onclick=()=>go(n.dataset.view)});
+
+  (function(){let h='';for(let i=1;i<=8;i++){h+=`<div class="thumb${i===3?' active':''}" onclick="this.parentElement.querySelectorAll('.thumb').forEach(t=>t.classList.remove('active'));this.classList.add('active')"><div class="pg"></div><small>第 ${i} 页</small></div>`;}document.getElementById('thumbs').innerHTML=h;})();
+
+  function treeSel(el){el.parentElement.querySelectorAll('.node').forEach(n=>n.classList.remove('on'));el.classList.add('on');}
+  function openDrawer(name){document.getElementById('dName').textContent=name;document.getElementById('drawer').classList.add('open');document.getElementById('overlay').classList.add('show');}
+  function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('overlay').classList.remove('show');}
+  function batch(k){const m={move:'移动',tag:'打标',delete:'删除',ocr:'提交识别'};alert(`已对选中的 3 个文件执行「${m[k]}」${k==='ocr'?'，任务已提交，可在识别任务中查看进度':'，完成后将显示结果汇总'}。`);}
+  function merge(k){alert(k==='merge'?'合并：按选中顺序合并为一个新文件，总页数不超过 100 页。':'拆分：可按页码区间或每 N 页拆分为多个新文件，原文件保持不变。');}
+  function inpage(){const v=document.getElementById('inpage').value;document.getElementById('hitcnt').textContent=v?`${Math.floor(Math.random()*8)+1} / 8 命中`:'3 / 8 命中';}
+  function ann(){alert('批注已保存到当前页面，坐标按归一化值存储，任意缩放比例下位置一致。');}
+  function vmode(){const v=document.getElementById('vmode').value;document.getElementById('vOrigin').style.display=v==='origin'?'grid':'none';const t=document.getElementById('vText');t.style.display=v==='text'?'block':'none';}
+  function trySave(){const c=document.getElementById('conflict');c.style.display=Math.random()<.5?'block':'none';if(c.style.display==='none'){alert('修订已保存，该页修订号更新为 Rev 5，全文索引已同步。');}}
+  document.querySelectorAll('#fmts .fmt').forEach(f=>f.onclick=()=>{document.querySelectorAll('#fmts .fmt').forEach(x=>x.classList.remove('active'));f.classList.add('active');document.getElementById('exphint').textContent=`当前格式：${f.dataset.f.toUpperCase()} · 流式下载，不在服务端生成临时文件`;});
+  function exportIt(){alert('导出已开始，完成后自动下载；失败页将单独列出。');}
+  function genLink(){document.getElementById('linkbox').style.display='flex';}
+  function copyLink(){navigator.clipboard&&navigator.clipboard.writeText('https://ocr.app/s/9f3ac1b2');alert('链接已复制到剪贴板');}
+  function revoke(){document.getElementById('revhint').textContent='分享已取消，该链接立即失效。';}
+  function purge(){alert('彻底删除后不可恢复，请确认。');}
+  function authTab(t){const l=t==='login';document.getElementById('fLogin').style.display=l?'block':'none';document.getElementById('fReg').style.display=l?'none':'block';document.getElementById('tLogin').classList.toggle('primary',l);document.getElementById('tReg').classList.toggle('primary',!l);}
+  function doLogin(){go('lib');}
+  function doReg(){alert('注册成功，已自动分配「普通用户」角色，请登录。');authTab('login');}
+  function logout(){alert('已退出登录。');go('auth');}
+</script>
+</body>
+</html>
