@@ -236,7 +236,10 @@ def test_refresh_invalid_token(client):
 
 def test_refresh_tampered_signature(client):
     token = register(client, "rft@example.com")
-    tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
+    header, payload, signature = token.split(".")
+    # 修改首字符，确保签名字节改变；末字符可能只改变 Base64URL 的填充位。
+    tampered_signature = ("A" if signature[0] != "A" else "B") + signature[1:]
+    tampered = ".".join((header, payload, tampered_signature))
     assert client.post("/api/v1/auth/refresh",
                       headers={"Authorization": f"Bearer {tampered}"}).status_code == 401
 
