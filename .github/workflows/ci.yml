@@ -22,11 +22,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -r ../pdf_ocr_module/ocr_service/requirements.txt pypdf==5.6.0
 
-      # 不安装 Paddle：主系统测试本就不依赖推理引擎，
-      # 未挂载时 test_ocr_contract.py 会整体跳过（项目降级设计）。
+      # 安装 OCR 的轻量 API/图像依赖，确保契约与检索测试实际执行；不安装 Paddle/模型。
       - name: Run tests
-        run: python -m pytest backend/tests -q
+        env:
+          PYTHONPATH: ../pdf_ocr_module
+        run: python -m pytest backend/tests ../pdf_ocr_module/ocr_service/tests -q
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -40,7 +42,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install and type-check
+      - name: Install, test and build
         run: |
-          npm install
-          npx tsc -b
+          npm ci
+          npm test
+          npm run build

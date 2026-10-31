@@ -320,7 +320,25 @@ paths:
     get:
       tags: [ocr]
       summary: 导出（TXT / JSON / CSV / HTML / XLSX）
-      responses: { "200": { description: OK } }
+      parameters:
+        - in: query
+          name: format
+          schema: { type: string, enum: [txt, json, csv, html, xlsx], default: json }
+        - in: query
+          name: pages
+          description: 重复传递页码，例如 pages=1&pages=3；省略表示全部任务页。最多 100 项，去重后按页序导出。
+          style: form
+          explode: true
+          schema: { type: array, maxItems: 100, items: { type: integer, minimum: 1 } }
+        - in: query
+          name: allow_partial
+          description: 允许仅导出所选范围中的成功页；没有成功页仍返回 409。
+          schema: { type: boolean, default: false }
+        - in: query
+          name: include_coordinates
+          description: JSON/CSV/XLSX 是否包含识别框坐标；JSON 同时控制表格分隔线坐标。
+          schema: { type: boolean, default: true }
+      responses: { "200": { description: OK }, "409": { description: 结果不完整 }, "422": { description: 非法页码 } }
   /ocr/search:
     get:
       tags: [ocr]
@@ -341,8 +359,35 @@ paths:
   /search:
     get:
       tags: [search]
-      summary: 全文检索（q/limit；返回 file_id、page_no、snippet、job_id、revision）
-      responses: { "200": { description: OK } }
+      summary: 全文检索（返回 file_id、file_name、page_no、snippet、job_id、revision）
+      description: 所有过滤条件取交集；排除回收站，非管理员仅能检索自己的文件。历史由前端按账号保存在当前浏览器，不新增服务端历史表。
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - in: query
+          name: file_id
+          schema: { type: string, pattern: '^[0-9a-f]{32}$' }
+        - in: query
+          name: tag
+          description: 精确标签名。
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - in: query
+          name: date_from
+          description: 文件上传时间的 UTC 起始日期，包含当日。
+          schema: { type: string, format: date }
+        - in: query
+          name: date_to
+          description: 文件上传时间的 UTC 结束日期，包含当日，须早于 9999-12-31。
+          schema: { type: string, format: date }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses: { "200": { description: OK }, "422": { description: 非法检索条件 } }
   /search/suggest:
     get:
       tags: [search]
