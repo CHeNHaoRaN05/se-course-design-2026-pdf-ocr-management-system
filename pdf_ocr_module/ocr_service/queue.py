@@ -4,6 +4,7 @@ from datetime import timedelta
 from sqlalchemy import and_, or_, select, update
 
 from .db import File, Job, Page, TextIndex, audit, now, uid
+from .locking import locked_row
 
 TERMINAL = {"succeeded", "partial_success", "failed", "cancelled"}
 
@@ -58,10 +59,10 @@ def heartbeat(session_factory, cfg, job_id, token):
 
 
 def locked_job(session, job_id, token):
-    # A write lock, rather than a read-only predicate, fences stale workers even on SQLite.
-    changed = session.execute(update(Job).where(Job.id == job_id, Job.status == "running",
-        Job.lease_token == token, Job.lease_until > now()).values(lease_token=token))
-    return session.get(Job, job_id) if changed.rowcount else None
+    job = locked_row(session, Job, Job.id == job_id, Job.status == "running",
+                     Job.lease_token == token)
+    # Check after acquiring the lock, including any time spent waiting for it.
+    return job if job and job.lease_until and job.lease_until > now() else None
 
 
 def write_index(session, job, page):

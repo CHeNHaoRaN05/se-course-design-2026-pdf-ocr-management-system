@@ -1,4 +1,5 @@
 import csv
+from copy import deepcopy
 import html
 import io
 import json
@@ -11,9 +12,17 @@ def spreadsheet_safe(value):
     return "'" + value if value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r", "\n")) else value
 
 
-def export_pages(pages, fmt):
+def export_pages(pages, fmt, include_coordinates=True):
     if fmt == "json":
-        return json.dumps(pages, ensure_ascii=False, indent=2).encode(), "application/json"
+        output = deepcopy(pages)
+        if not include_coordinates:
+            for page in output:
+                for block in page["result"]["blocks"]:
+                    block.pop("bbox", None)
+                for table in page["result"].get("tables", []):
+                    table.pop("x_lines", None)
+                    table.pop("y_lines", None)
+        return json.dumps(output, ensure_ascii=False, indent=2).encode(), "application/json"
     if fmt == "txt":
         return "\n\n".join(f"--- 第 {p['page_no']} 页 ---\n{p['result']['text']}" for p in pages).encode(), "text/plain; charset=utf-8"
     if fmt == "html":
@@ -25,9 +34,10 @@ def export_pages(pages, fmt):
                 parts.extend("<tr>" + "".join("<td>" + html.escape(c) + "</td>" for c in row) + "</tr>" for row in table["cells"])
                 parts.append("</table>")
         return ("".join(parts) + "</body></html>").encode(), "text/html; charset=utf-8"
-    rows = [["page", "block_id", "text", "confidence", "left", "top", "right", "bottom"]]
+    rows = [["page", "block_id", "text", "confidence"] + (["left", "top", "right", "bottom"] if include_coordinates else [])]
     for p in pages:
-        rows.extend([[p["page_no"], b["id"], spreadsheet_safe(b["text"]), b["confidence"], *b["bbox"]] for b in p["result"]["blocks"]])
+        rows.extend([[p["page_no"], b["id"], spreadsheet_safe(b["text"]), b["confidence"]]
+                     + (b["bbox"] if include_coordinates else []) for b in p["result"]["blocks"]])
     if fmt == "csv":
         output = io.StringIO(newline="")
         csv.writer(output).writerows(rows)

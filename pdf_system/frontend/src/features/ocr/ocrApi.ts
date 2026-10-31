@@ -32,8 +32,12 @@ export const correctPage = (jobId: string, pageNo: number, expectedRevision: num
     body: JSON.stringify({ expected_revision: expectedRevision, blocks }),
   });
 
-export const exportJob = (jobId: string, format: "txt" | "json" | "csv" | "html" | "xlsx", allowPartial = false) =>
-  apiBlob(`/ocr/jobs/${jobId}/export?format=${format}&allow_partial=${allowPartial}`);
+export const exportJob = (jobId: string, format: "txt" | "json" | "csv" | "html" | "xlsx",
+  allowPartial = false, pages?: number[], includeCoordinates = true) => {
+  const params = new URLSearchParams({ format, allow_partial: String(allowPartial), include_coordinates: String(includeCoordinates) });
+  pages?.forEach((page) => params.append("pages", String(page)));
+  return apiBlob(`/ocr/jobs/${jobId}/export?${params}`);
+};
 
 /** 任务终态后调用，成功页计费、失败页退额度（幂等）。 */
 export const settleJob = (jobId: string) => api<Record<string, unknown>>(`/ocr-host/jobs/${jobId}/settle`, { method: "POST" });

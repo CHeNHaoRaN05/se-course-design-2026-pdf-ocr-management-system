@@ -2,6 +2,7 @@ import hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, FastAPI, File as UploadField, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -12,6 +13,7 @@ from .config import Settings
 from .db import Audit, Base, File, Job, Page, TextIndex, audit, database, now, uid
 from .exports import export_pages
 from .media import MediaError, inspect_media, safe_path
+from .locking import locked_row
 from .queue import TERMINAL, release_file, write_index
 from .schemas import Correction, FileOut, JobCreate, JobOut, PageOut, SearchOut
 from .tables import assign_cells
@@ -205,13 +207,15 @@ def page_image(job_id: str, page_no: int, request: Request, session=Depends(db),
 def correct(job_id: str, page_no: int, body: Correction, session=Depends(db), user=Depends(editor)):
     job = owned(session.get(Job, job_id), user)
     # Hold file row through correction + index update, so enqueue cannot race the edit.
-    gate = session.execute(update(File).where(File.id == job.file_id, File.active_job_id.is_(None)).values(active_job_id=None))
-    if not gate.rowcount:
+    file = locked_row(session, File, File.id == job.file_id, File.active_job_id.is_(None))
+    if file is None:
         raise HTTPException(409, "Wait for active OCR job to finish before editing")
-    page = session.scalar(select(Page).where(Page.job_id == job_id, Page.page_no == page_no))
+    page = locked_row(session, Page, Page.job_id == job_id, Page.page_no == page_no)
     if not page or page.status != "succeeded":
         raise HTTPException(404, "Successful page result not found")
-    index = session.scalar(select(TextIndex).where(TextIndex.file_id == job.file_id, TextIndex.page_no == page_no))
+    # Locking reads see current data even under MySQL REPEATABLE READ after
+    # waiting for an enqueue/worker transaction to release the file row.
+    index = locked_row(session, TextIndex, TextIndex.file_id == job.file_id, TextIndex.page_no == page_no)
     if not index or index.job_id != job_id:
         raise HTTPException(409, "Page has been superseded by a newer result")
     data = dict(page.result)
@@ -233,17 +237,27 @@ def correct(job_id: str, page_no: int, body: Correction, session=Depends(db), us
 
 @router.get("/jobs/{job_id}/export")
 def export(job_id: str, format: Literal["txt", "json", "csv", "html", "xlsx"] = "json",
-           allow_partial: bool = False, session=Depends(db), user=Depends(current_user)):
+           allow_partial: bool = False, pages: list[int] | None = Query(None, max_length=100),
+           include_coordinates: bool = True, session=Depends(db), user=Depends(current_user)):
     job = owned(session.get(Job, job_id), user)
-    pages = session.scalars(select(Page).where(Page.job_id == job_id).order_by(Page.page_no)).all()
-    good = [page_view(p) for p in pages if p.status == "succeeded"]
-    if not good or (not allow_partial and (job.status != "succeeded" or len(good) != len(pages))):
+    selected = session.scalars(select(Page).where(Page.job_id == job_id).order_by(Page.page_no)).all()
+    if pages is not None:
+        if not pages or not set(pages).issubset({p.page_no for p in selected}):
+            raise HTTPException(422, "Export pages must belong to this job")
+        selected = [p for p in selected if p.page_no in set(pages)]
+    good = [page_view(p) for p in selected if p.status == "succeeded"]
+    if not good or (not allow_partial and (len(good) != len(selected)
+                                          or (pages is None and job.status != "succeeded"))):
         raise HTTPException(409, "Result incomplete; use allow_partial=true to export successful pages")
-    data, media = export_pages(good, format)
+    data, media = export_pages(good, format, include_coordinates=include_coordinates)
     audit(session, user.user_id, "result_exported", job_id, format=format, pages=len(good))
+    file = session.get(File, job.file_id)
+    # RFC 5987 UTF-8 filename; never interpolate an uploaded name into raw headers.
+    stem = Path(file.name.replace("\\", "/")).stem[:100]
+    filename = quote(f"{stem}-{now():%Y%m%d-%H%M%S}.{format}", safe="")
     session.commit()
-    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="ocr-{job_id}.{format}"',
-        "X-OCR-Exported-Pages": str(len(good)), "X-OCR-Total-Pages": str(len(pages)),
+    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="ocr-{job_id}.{format}"; filename*=UTF-8\'\'{filename}',
+        "X-OCR-Exported-Pages": str(len(good)), "X-OCR-Total-Pages": str(len(selected)),
         "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
 
 
