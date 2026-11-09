@@ -1,78 +1,753 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
-import { startOcrJob } from "../ocr/ocrApi";
-import type { FileItem } from "../../shared/types";
-import { deleteFile, listFiles, uploadFile } from "./filesApi";
+import { api, downloadBlob } from "../../shared/http";
+import type { FileItem, OcrJob } from "../../shared/types";
+import {
+  errorText,
+  formatBytes,
+  formatDate,
+  statusNames,
+} from "../../shared/management";
+import {
+  EmptyState,
+  FileGlyph,
+  Icon,
+  Loading,
+  Modal,
+  Notice,
+  PageHeading,
+  Pagination,
+} from "../../shared/ui";
+import { useResource } from "../../shared/useResource";
+import { allFiles, fileBlob } from "./filesApi";
+import FileActionDialog, { type FileAction } from "./FileActionDialog";
 
+const PAGE_SIZE = 12;
 export default function FilesPage() {
   const { me } = useAuth();
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [error, setError] = useState("");
+  const editor = me?.role !== "viewer";
+  const resource = useResource((signal) => allFiles(signal));
+  const files = resource.data ?? [];
+  const [q, setQ] = useState("");
+  const [folder, setFolder] = useState("");
+  const [tag, setTag] = useState("");
+  const [type, setType] = useState("");
+  const [status, setStatus] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [page, setPage] = useState(1);
+  const [view, setView] = useState("list");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [action, setAction] = useState<{
+    kind: FileAction;
+    files: FileItem[];
+  } | null>(null);
+  const [detail, setDetail] = useState<FileItem | null>(null);
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-
-  const reload = () => listFiles().then(setFiles).catch((e) => setError(String(e.message ?? e)));
-  useEffect(() => { void reload(); }, []);
-
-  async function onUpload() {
-    const file = input.current?.files?.[0];
-    if (!file) return;
+  const [jobs, setJobs] = useState<Record<string, string>>({});
+  const [statusReady, setStatusReady] = useState(false);
+  const [hash, setHash] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    setStatusReady(false);
+    setJobs({});
+    void (async () => {
+      const capability = await api<{ mounted: boolean }>(
+        "/ocr-host/capabilities",
+        { signal: controller.signal },
+      );
+      if (!capability.mounted) return;
+      const latest: Record<string, string> = {};
+      for (let offset = 0; ; offset += 100) {
+        const batch = await api<OcrJob[]>(
+          `/ocr/jobs?limit=100&offset=${offset}`,
+          { signal: controller.signal },
+        );
+        for (const job of batch)
+          if (!latest[job.file_id]) latest[job.file_id] = job.status;
+        if (batch.length < 100) break;
+      }
+      if (!controller.signal.aborted) {
+        setJobs(latest);
+        setStatusReady(true);
+      }
+    })().catch(() => {
+      /* 文档列表仍可独立使用，识别状态标记不可用 */
+    });
+    return () => controller.abort();
+  }, [resource.data]);
+  useEffect(() => {
+    setPage(1);
+    setSelected([]);
+  }, [q, folder, tag, type, status, sort]);
+  const folders = useMemo(
+    () =>
+      [
+        ...new Set(
+          files.flatMap((file) => {
+            const parts = file.folder.split("/").filter(Boolean);
+            return parts.map((_, i) => "/" + parts.slice(0, i + 1).join("/"));
+          }),
+        ),
+      ].sort(),
+    [files],
+  );
+  const tags = [...new Set(files.flatMap((file) => file.tags))].sort();
+  const filtered = useMemo(
+    () =>
+      files
+        .filter(
+          (file) =>
+            file.name
+              .toLocaleLowerCase()
+              .includes(q.trim().toLocaleLowerCase()) &&
+            (!folder ||
+              file.folder === folder ||
+              file.folder.startsWith(folder + "/")) &&
+            (!tag || file.tags.includes(tag)) &&
+            (!type ||
+              (type === "pdf"
+                ? file.media_type === "application/pdf"
+                : file.media_type.startsWith("image/"))) &&
+            (!status || (statusReady && (jobs[file.id] ?? "none") === status)),
+        )
+        .sort((a, b) =>
+          sort === "name"
+            ? a.name.localeCompare(b.name, "zh-CN")
+            : sort === "size"
+              ? b.size - a.size
+              : sort === "pages"
+                ? b.page_count - a.page_count
+                : b.created_at.localeCompare(a.created_at),
+        ),
+    [files, q, folder, tag, type, status, statusReady, jobs, sort],
+  );
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
+  );
+  const visible = filtered.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+  const picked = selected
+    .map((id) => files.find((file) => file.id === id))
+    .filter((file): file is FileItem => !!file);
+  function toggle(id: string) {
+    setSelected((previous) =>
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id],
+    );
+  }
+  function open(kind: FileAction, items = picked) {
+    if (editor && items.length) {
+      setMessage("");
+      setAction({ kind, files: items });
+    }
+  }
+  async function download(file: FileItem) {
+    if (busy) return;
     setBusy(true);
-    setError("");
+    setMessage("");
     try {
-      await uploadFile(file);
-      await reload();
+      downloadBlob(await fileBlob(file.id), file.name);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "上传失败");
+      setMessage(errorText(e));
     } finally {
       setBusy(false);
-      if (input.current) input.current.value = "";
     }
   }
-
-  async function onOcr(fileId: string) {
-    setError("");
-    try {
-      await startOcrJob({ file_id: fileId, mode: "general", tables: true });
-      window.location.href = `/files/${fileId}`;
-    } catch (e) {
-      // 429 表示本月配额不足（契约 C3）
-      setError(e instanceof Error ? e.message : "创建识别任务失败");
-    }
-  }
-
+  const fileStatus = (file: FileItem) =>
+    statusReady ? (jobs[file.id] ?? "none") : "unknown";
+  const actions = (file: FileItem) => (
+    <div className="file-actions">
+      <Link className="text-button" to={`/files/${file.id}`}>
+        打开
+      </Link>
+      <details className="action-menu">
+        <summary aria-label={`${file.name} 的更多操作`}>
+          <Icon name="more" />
+        </summary>
+        <div>
+          <button
+            onClick={() => {
+              setDetail(file);
+              setHash("");
+              setMessage("");
+            }}
+          >
+            文档信息
+          </button>
+          <button disabled={busy} onClick={() => void download(file)}>
+            下载原文件
+          </button>
+          {editor && (
+            <>
+              <button onClick={() => open("rename", [file])}>重命名</button>
+              <button onClick={() => open("move", [file])}>移动分类</button>
+              <button onClick={() => open("tag", [file])}>编辑标签</button>
+              <Link to={`/shares?file=${file.id}`}>创建分享</Link>
+              <button className="error" onClick={() => open("delete", [file])}>
+                移入回收站
+              </button>
+            </>
+          )}
+        </div>
+      </details>
+    </div>
+  );
   return (
-    <div>
-      <div className="card row">
-        <input ref={input} type="file" accept=".pdf,.png,.jpg,.jpeg" />
-        <button className="primary" disabled={busy} onClick={onUpload}>上传</button>
-        <span className="muted">上限 20 MiB · PDF 100 页</span>
+    <div className="workspace-page">
+      <PageHeading
+        eyebrow="YOUR DOCUMENT LIBRARY"
+        title="文件库"
+        description="有序整理每一份资料，让知识随时可用。"
+        actions={
+          <>
+            <button onClick={resource.reload} disabled={resource.loading}>
+              <Icon name="refresh" />
+              刷新
+            </button>
+            {editor && (
+              <Link className="button primary" to="/upload">
+                <Icon name="plus" />
+                上传文档
+              </Link>
+            )}
+          </>
+        }
+      />
+      <div className="library-stats">
+        <div>
+          <span className="stat-icon blue">
+            <Icon name="folder" />
+          </span>
+          <span>
+            <strong>{resource.data ? files.length : "—"}</strong>
+            <small>全部文档</small>
+          </span>
+        </div>
+        <div>
+          <span className="stat-icon rose">
+            <Icon name="file" />
+          </span>
+          <span>
+            <strong>
+              {resource.data
+                ? files.filter((f) => f.media_type === "application/pdf").length
+                : "—"}
+            </strong>
+            <small>PDF 文档</small>
+          </span>
+        </div>
+        <div>
+          <span className="stat-icon green">
+            <Icon name="list" />
+          </span>
+          <span>
+            <strong>
+              {resource.data
+                ? files.reduce((sum, f) => sum + f.page_count, 0)
+                : "—"}
+            </strong>
+            <small>文档总页数</small>
+          </span>
+        </div>
+        <div>
+          <span className="stat-icon amber">
+            <Icon name="chart" />
+          </span>
+          <span>
+            <strong>
+              {resource.data
+                ? formatBytes(files.reduce((sum, f) => sum + f.size, 0))
+                : "—"}
+            </strong>
+            <small>可见文档存储</small>
+          </span>
+        </div>
       </div>
-      {error && <p className="error">{error}</p>}
-      <div className="card">
-        <table>
-          <thead>
-            <tr><th>文件名</th><th>类型</th><th>页数</th><th>大小</th><th>标签</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            {files.map((file) => (
-              <tr key={file.id}>
-                <td><Link to={`/files/${file.id}`}>{file.name}</Link></td>
-                <td>{file.media_type === "application/pdf" ? "PDF" : "图片"}</td>
-                <td>{file.page_count}</td>
-                <td>{(file.size / 1024).toFixed(0)} KiB</td>
-                <td>{file.tags.join("、") || "-"}</td>
-                <td>
-                  <button disabled={me?.role === "viewer"} onClick={() => onOcr(file.id)}>识别</button>{" "}
-                  <button disabled={me?.role === "viewer"} onClick={() => deleteFile(file.id).then(reload)}>删除</button>
-                </td>
-              </tr>
+      {(resource.error || message) && (
+        <Notice tone="error">
+          {resource.error || message}
+          {resource.error && (
+            <button className="text-button" onClick={resource.reload}>
+              重新加载
+            </button>
+          )}
+        </Notice>
+      )}
+      <div className="library-layout">
+        <aside className="panel folder-panel">
+          <div className="panel-heading">
+            <h2>分类目录</h2>
+            <Icon name="folder" size={16} />
+          </div>
+          <div className="folder-tree">
+            <button
+              className={!folder ? "active" : ""}
+              onClick={() => setFolder("")}
+            >
+              <Icon name="folder" size={17} />
+              全部文档<span>{files.length}</span>
+            </button>
+            {folders.map((path) => (
+              <button
+                key={path}
+                title={path}
+                className={folder === path ? "active" : ""}
+                style={{ paddingLeft: 12 + (path.split("/").length - 2) * 12 }}
+                onClick={() => setFolder(path)}
+              >
+                <Icon name="folder" size={16} />
+                <span className="folder-name">{path.split("/").pop()}</span>
+                <small>
+                  {
+                    files.filter(
+                      (file) =>
+                        file.folder === path ||
+                        file.folder.startsWith(path + "/"),
+                    ).length
+                  }
+                </small>
+              </button>
             ))}
-            {files.length === 0 && <tr><td colSpan={6} className="muted">暂无文件</td></tr>}
-          </tbody>
-        </table>
+          </div>
+          <div className="folder-note">
+            选择文档后点击“移动”，
+            <br />
+            即可设置或新建分类路径。
+          </div>
+          <div className="panel-heading">
+            <h2>我的标签</h2>
+            <Icon name="tag" size={16} />
+          </div>
+          <div className="tag-cloud">
+            {tags.map((value, i) => (
+              <button
+                className={`tag-chip color-${i % 4} ${tag === value ? "selected" : ""}`}
+                key={value}
+                onClick={() => setTag(tag === value ? "" : value)}
+              >
+                {value}
+              </button>
+            ))}
+            {!tags.length && (
+              <span className="muted">给文档添加标签，方便筛选</span>
+            )}
+          </div>
+        </aside>
+        <section className="panel file-panel">
+          <div className="panel-heading">
+            <h2>
+              {folder ? folder.split("/").pop() : "全部文档"}
+              <span className="count-badge">{filtered.length}</span>
+            </h2>
+            <div className="segmented">
+              <button
+                aria-label="列表视图"
+                aria-pressed={view === "list"}
+                className={view === "list" ? "active" : ""}
+                onClick={() => setView("list")}
+              >
+                <Icon name="list" size={17} />
+              </button>
+              <button
+                aria-label="卡片视图"
+                aria-pressed={view === "grid"}
+                className={view === "grid" ? "active" : ""}
+                onClick={() => setView("grid")}
+              >
+                <Icon name="grid" size={17} />
+              </button>
+            </div>
+          </div>
+          <div className="file-filters">
+            <label className="input-icon">
+              <Icon name="search" size={17} />
+              <input
+                aria-label="按文件名搜索"
+                placeholder="搜索文件名…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </label>
+            <select
+              aria-label="文件类型"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+            >
+              <option value="">所有类型</option>
+              <option value="pdf">PDF 文档</option>
+              <option value="image">图片</option>
+            </select>
+            <select
+              aria-label="识别状态"
+              disabled={!statusReady}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="">
+                {statusReady ? "所有状态" : "识别状态不可用"}
+              </option>
+              {Object.entries(statusNames)
+                .filter(([key]) => key !== "unknown")
+                .map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+            </select>
+            <select
+              aria-label="排序方式"
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+            >
+              <option value="newest">最新上传</option>
+              <option value="name">名称排序</option>
+              <option value="size">大小排序</option>
+              <option value="pages">页数排序</option>
+            </select>
+          </div>
+          {tag && (
+            <div className="active-filter">
+              标签：
+              <button className="tag-chip selected" onClick={() => setTag("")}>
+                {tag}
+                <Icon name="close" size={12} />
+              </button>
+            </div>
+          )}
+          {!!picked.length && (
+            <div className="bulk-toolbar">
+              <strong>已选 {picked.length} 项</strong>
+              {editor && (
+                <>
+                  <button onClick={() => open("move")}>
+                    <Icon name="folder" size={15} />
+                    移动
+                  </button>
+                  <button onClick={() => open("tag")}>
+                    <Icon name="tag" size={15} />
+                    打标
+                  </button>
+                  <button
+                    disabled={
+                      picked.length < 2 ||
+                      picked.some((f) => f.media_type !== "application/pdf")
+                    }
+                    onClick={() => open("merge")}
+                  >
+                    <Icon name="merge" size={15} />
+                    合并
+                  </button>
+                  <button
+                    disabled={
+                      picked.length !== 1 ||
+                      picked[0]?.media_type !== "application/pdf"
+                    }
+                    onClick={() => open("split")}
+                  >
+                    <Icon name="split" size={15} />
+                    拆分
+                  </button>
+                  <button
+                    className="danger subtle"
+                    onClick={() => open("delete")}
+                  >
+                    <Icon name="trash" size={15} />
+                    删除
+                  </button>
+                </>
+              )}
+              <button className="text-button" onClick={() => setSelected([])}>
+                取消选择
+              </button>
+            </div>
+          )}
+          {resource.loading ? (
+            <Loading text="正在加载文档库…" />
+          ) : resource.error ? (
+            <EmptyState
+              title="文档库加载失败"
+              description="请检查网络和服务状态后重试。"
+              action={<button onClick={resource.reload}>重新加载文档</button>}
+            />
+          ) : !filtered.length ? (
+            <EmptyState
+              title={
+                files.length
+                  ? "没有符合条件的文档"
+                  : "你的文档空间，等待第一份资料"
+              }
+              description={
+                files.length
+                  ? "试试调整关键词、分类或筛选条件。"
+                  : "上传 PDF 或图片，开始构建自己的资料库。"
+              }
+              action={
+                editor && !files.length ? (
+                  <Link className="button primary" to="/upload">
+                    <Icon name="upload" />
+                    上传第一份文档
+                  </Link>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setQ("");
+                      setFolder("");
+                      setTag("");
+                      setType("");
+                      setStatus("");
+                    }}
+                  >
+                    清除筛选
+                  </button>
+                )
+              }
+            />
+          ) : view === "list" ? (
+            <div className="table-scroll">
+              <table className="file-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        aria-label="选择本页全部文档"
+                        checked={
+                          visible.length > 0 &&
+                          visible.every((file) => selected.includes(file.id))
+                        }
+                        onChange={(e) =>
+                          setSelected((old) =>
+                            e.target.checked
+                              ? [
+                                  ...new Set([
+                                    ...old,
+                                    ...visible.map((f) => f.id),
+                                  ]),
+                                ]
+                              : old.filter(
+                                  (id) => !visible.some((f) => f.id === id),
+                                ),
+                          )
+                        }
+                      />
+                    </th>
+                    <th>文档名称</th>
+                    <th>大小 / 页数</th>
+                    <th>识别状态</th>
+                    <th>上传日期</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((file) => (
+                    <tr
+                      key={file.id}
+                      className={
+                        selected.includes(file.id) ? "selected-row" : ""
+                      }
+                    >
+                      <td>
+                        <input
+                          aria-label={`选择 ${file.name}`}
+                          type="checkbox"
+                          checked={selected.includes(file.id)}
+                          onChange={() => toggle(file.id)}
+                        />
+                      </td>
+                      <td>
+                        <div className="file-name-cell">
+                          <FileGlyph type={file.media_type} />
+                          <div>
+                            <button
+                              className="filename-button"
+                              onClick={() => {
+                                setDetail(file);
+                                setHash("");
+                                setMessage("");
+                              }}
+                            >
+                              {file.name}
+                            </button>
+                            <div className="file-tags">
+                              {file.tags.slice(0, 3).map((value, i) => (
+                                <button
+                                  key={value}
+                                  className={`tag-chip color-${i % 4}`}
+                                  onClick={() => setTag(value)}
+                                >
+                                  {value}
+                                </button>
+                              ))}
+                              {file.tags.length > 3 && (
+                                <small>+{file.tags.length - 3}</small>
+                              )}
+                              {!file.tags.length && (
+                                <small>
+                                  {file.folder === "/" ? "未分类" : file.folder}{" "}
+                                  · v{file.version}
+                                </small>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="nowrap">{formatBytes(file.size)}</span>
+                        <small className="cell-sub">{file.page_count} 页</small>
+                      </td>
+                      <td>
+                        <span className={`status-pill ${fileStatus(file)}`}>
+                          <i />
+                          {statusNames[fileStatus(file)] ?? fileStatus(file)}
+                        </span>
+                      </td>
+                      <td className="date-cell">
+                        {formatDate(file.created_at)}
+                      </td>
+                      <td>{actions(file)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="file-grid">
+              {visible.map((file) => (
+                <article
+                  className={`document-card ${selected.includes(file.id) ? "selected" : ""}`}
+                  key={file.id}
+                >
+                  <div className="row">
+                    <FileGlyph type={file.media_type} />
+                    <span className="spacer" />
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${file.name}`}
+                      checked={selected.includes(file.id)}
+                      onChange={() => toggle(file.id)}
+                    />
+                  </div>
+                  <button
+                    className="filename-button"
+                    onClick={() => {
+                      setDetail(file);
+                      setHash("");
+                    }}
+                  >
+                    {file.name}
+                  </button>
+                  <p>
+                    {formatBytes(file.size)} · {file.page_count} 页
+                  </p>
+                  <span className={`status-pill ${fileStatus(file)}`}>
+                    {statusNames[fileStatus(file)]}
+                  </span>
+                  <div className="document-card-footer">
+                    <span>{formatDate(file.created_at)}</span>
+                    {actions(file)}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          {!resource.loading && (
+            <Pagination
+              page={currentPage}
+              total={filtered.length}
+              pageSize={PAGE_SIZE}
+              onChange={setPage}
+            />
+          )}
+        </section>
       </div>
+      {action && (
+        <FileActionDialog
+          action={action.kind}
+          files={action.files}
+          onClose={() => {
+            setAction(null);
+          }}
+          onChanged={() => {
+            setSelected([]);
+            resource.reload();
+          }}
+        />
+      )}
+      {detail && (
+        <Modal title="文档信息" onClose={() => setDetail(null)} busy={busy}>
+          <div className="detail-title">
+            <FileGlyph type={detail.media_type} />
+            <h3>{detail.name}</h3>
+          </div>
+          <dl className="detail-list">
+            <dt>文档 ID</dt>
+            <dd className="mono">{detail.id}</dd>
+            <dt>文件类型</dt>
+            <dd>{detail.media_type}</dd>
+            <dt>文件大小</dt>
+            <dd>{formatBytes(detail.size)}</dd>
+            <dt>总页数</dt>
+            <dd>{detail.page_count} 页</dd>
+            <dt>版本</dt>
+            <dd>v{detail.version}</dd>
+            <dt>上传时间</dt>
+            <dd>{formatDate(detail.created_at, true)}</dd>
+            <dt>所属分类</dt>
+            <dd>{detail.folder}</dd>
+            <dt>标签</dt>
+            <dd>{detail.tags.join("、") || "暂无标签"}</dd>
+          </dl>
+          {message && <Notice tone="error">{message}</Notice>}
+          {hash ? (
+            <div className="hash-result">
+              <small>SHA-256（原文件计算）</small>
+              <code>{hash}</code>
+            </div>
+          ) : (
+            <button
+              className="text-button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  if (!crypto.subtle) throw new Error("请使用 HTTPS 或 localhost 访问，以计算文件校验值。");
+                  const digest = await crypto.subtle.digest(
+                    "SHA-256",
+                    await (await fileBlob(detail.id)).arrayBuffer(),
+                  );
+                  setHash(
+                    Array.from(new Uint8Array(digest), (byte) =>
+                      byte.toString(16).padStart(2, "0"),
+                    ).join(""),
+                  );
+                } catch (e) {
+                  setMessage(errorText(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              计算 SHA-256 校验值
+            </button>
+          )}
+          <div className="modal-actions">
+            <button disabled={busy} onClick={() => void download(detail)}>
+              <Icon name="download" />
+              下载原文件
+            </button>
+            <Link className="button primary" to={`/files/${detail.id}`}>
+              打开文档
+              <Icon name="chevron" size={16} />
+            </Link>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
