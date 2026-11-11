@@ -16,7 +16,7 @@ import {
   Loading,
   Notice,
   PageHeading,
-} from "../../shared/ui";
+} from "../management/ui";
 
 interface Hit {
   file_id: string;
@@ -129,7 +129,13 @@ export default function SearchPage() {
       limit: String(PAGE_SIZE + 1),
       offset: String(start),
     });
-    for (const key of ["file_id", "tag", "date_from", "date_to"] as const) {
+    for (const key of [
+      "file_id",
+      "tag",
+      "date_from",
+      "date_to",
+      "media_type",
+    ] as const) {
       if (normalized[key]) params.set(key, normalized[key]);
     }
     try {
@@ -207,6 +213,19 @@ export default function SearchPage() {
                 }))
               }
             />
+          </label>
+          <label>
+            文件类型
+            <select
+              aria-label="检索文件类型"
+              value={filters.media_type}
+              onChange={(e) => change("media_type", e.target.value)}
+            >
+              <option value="">全部类型</option>
+              <option value="application/pdf">PDF</option>
+              <option value="image/png">PNG</option>
+              <option value="image/jpeg">JPEG</option>
+            </select>
           </label>
           <label>
             标签

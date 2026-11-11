@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
@@ -20,6 +20,7 @@ const email = `frontend-smoke-${randomBytes(5).toString("hex")}@example.com`;
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const completed = [];
+mkdirSync("test-results", { recursive: true });
 try {
   await page.goto(`${origin}/login`);
   await page.getByRole("button", { name: "注册", exact: true }).click();
@@ -114,7 +115,7 @@ try {
   await page.getByRole("button", { name: "完成", exact: true }).click();
   await page.goto(`${origin}/files`);
   await expect(page.locator("tbody tr")).toHaveCount(5);
-  completed.push("soft-delete/browser-trash/restore");
+  completed.push("soft-delete/server-trash/restore");
 
   await page.goto(`${origin}/stats`);
   await expect(page.locator(".metric-card").first()).toContainText("5");
@@ -130,6 +131,14 @@ try {
   await expect(page).toHaveURL(/login/);
   completed.push("quota/password/token-rotation/logout");
   assert.deepEqual(errors, []);
+  writeFileSync(
+    "test-results/live-result.json",
+    JSON.stringify(
+      { result: "passed", backend: "real FastAPI/SQLite", completed },
+      null,
+      2,
+    ),
+  );
   console.log(
     JSON.stringify(
       {
@@ -142,6 +151,14 @@ try {
     ),
   );
 } catch (error) {
+  writeFileSync(
+    "test-results/live-result.json",
+    JSON.stringify(
+      { result: "failed", completed, error: String(error) },
+      null,
+      2,
+    ),
+  );
   console.error(
     JSON.stringify(
       { result: "failed", completed, error: String(error) },
@@ -151,7 +168,7 @@ try {
   );
   await page
     .screenshot({
-      path: join(tmpdir(), "se-live-failure.png"),
+      path: join("test-results", "live-failure.png"),
       fullPage: true,
       animations: "disabled",
     })

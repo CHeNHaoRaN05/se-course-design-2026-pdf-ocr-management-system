@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
-import { api, ApiError } from "../../shared/http";
+import { api } from "../../shared/http";
 import {
   errorText,
   formatBytes,
   formatDate,
   type TrashItem,
-} from "../../shared/management";
+} from "../management/management";
 import {
   EmptyState,
   FileGlyph,
@@ -17,9 +17,9 @@ import {
   Notice,
   PageHeading,
   Pagination,
-} from "../../shared/ui";
-import { useResource } from "../../shared/useResource";
-import { forgetTrash, readTrash } from "./trashHistory";
+} from "../management/ui";
+import { useResource } from "../management/useResource";
+import { readAllPages } from "../management/pagination";
 import { purgeFile, restoreFile } from "./filesApi";
 
 export default function TrashPage() {
@@ -27,22 +27,14 @@ export default function TrashPage() {
   const editor = me?.role !== "viewer";
   const resource = useResource(
     async (signal) => {
-      try {
-        const items: TrashItem[] = [];
-        for (let offset = 0; ; offset += 100) {
-          const page = await api<TrashItem[]>(
-            `/files/trash?limit=100&offset=${offset}`,
-            { signal },
-          );
-          items.push(...page);
-          if (page.length < 100) break;
-        }
-        return { items, local: false };
-      } catch (e) {
-        if (e instanceof ApiError && [404, 405].includes(e.status))
-          return { items: me ? readTrash(me.id) : [], local: true };
-        throw e;
-      }
+      const items = await readAllPages(
+        (offset) =>
+          api<TrashItem[]>(`/files/trash?limit=100&offset=${offset}`, {
+            signal,
+          }),
+        signal,
+      );
+      return { items };
     },
     [me?.id],
   );
@@ -78,7 +70,6 @@ export default function TrashPage() {
       try {
         if (operation.purge) await purgeFile(file.id);
         else await restoreFile(file.id);
-        if (me) forgetTrash(me.id, file.id);
         setResults((old) => [...old, { name: file.name, ok: true }]);
       } catch (e) {
         setResults((old) => [
@@ -105,17 +96,11 @@ export default function TrashPage() {
           </button>
         }
       />
-      {resource.data?.local && (
-        <Notice tone="warning">
-          当前显示本浏览器、当前账号的删除记录。服务端尚未提供完整回收站列表，其他浏览器删除的文件可凭文档
-          ID 还原。实际可恢复状态以服务端返回为准。
-        </Notice>
-      )}
       {resource.error && <Notice tone="error">{resource.error}</Notice>}
       <section className="panel">
         <div className="panel-heading">
           <h2>
-            {resource.data?.local ? "本浏览器删除记录" : "已删除文档"}
+            已删除文档
             <span className="count-badge">
               {resource.data?.items.length ?? "—"}
             </span>
@@ -164,6 +149,11 @@ export default function TrashPage() {
         )}
         {resource.loading ? (
           <Loading />
+        ) : resource.error ? (
+          <EmptyState
+            title="回收站加载失败"
+            description="请检查权限和服务状态后重试。"
+          />
         ) : !filtered.length ? (
           <EmptyState
             icon="trash"
@@ -184,7 +174,7 @@ export default function TrashPage() {
                     <th>选择</th>
                     <th>文档名称</th>
                     <th>大小</th>
-                    <th>{resource.data?.local ? "记录时间" : "删除时间"}</th>
+                    <th>删除时间</th>
                     <th>操作</th>
                   </tr>
                 </thead>

@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.mjs",
-    "test:e2e": "playwright test"
+    "test": "node scripts/run-unit-tests.mjs",
+    "test:e2e": "playwright test",
+    "test:live": "node scripts/run-live-tests.mjs"
   },
   "dependencies": {
     "pdf-lib": "1.17.1",

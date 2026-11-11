@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, tokenStore, TOKEN_KEY, TOKEN_CHANGED } from "../shared/http";
-import { errorText, type UserInfo } from "../shared/management";
+import { errorText, type UserInfo } from "../features/management/management";
 
 interface AuthState {
   token: string;
@@ -107,11 +107,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return refreshing.current;
   }, [adoptToken]);
   const logout = useCallback(async () => {
-    // 吊销失败时保留会话并报告失败，避免误称已在服务器退出。
-    await api("/auth/logout", { method: "POST" });
+    const current = tokenStore.get();
+    // 本地退出立即生效。远端吊销最多等待5秒；失败不能恢复本地会话。
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 5000);
+    const revoke = api(
+      "/auth/logout",
+      { method: "POST", signal: controller.signal },
+      current,
+    );
     tokenStore.clear();
     setToken("");
     setMe(null);
+    try {
+      await revoke;
+    } catch {
+      try {
+        sessionStorage.setItem(
+          "pdf_logout_notice",
+          "已在本机退出；网络异常，未确认服务端会话吊销。旧会话将在过期后失效。",
+        );
+      } catch {
+        /* 无持久化 */
+      }
+    } finally {
+      window.clearTimeout(timer);
+    }
   }, []);
   const value = useMemo<AuthState>(
     () => ({

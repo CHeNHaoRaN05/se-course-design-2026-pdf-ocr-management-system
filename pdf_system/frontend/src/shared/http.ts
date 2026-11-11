@@ -1,6 +1,5 @@
 /** 全站唯一 HTTP 出口，保持 reader / OCR 已有调用签名。 */
 export const TOKEN_KEY = "pdf_system_token";
-export const AUTH_EXPIRED = "pdf-system:auth-expired";
 export const TOKEN_CHANGED = "pdf-system:token-changed";
 let memoryToken = "";
 let memoryOnly = false;
@@ -46,13 +45,33 @@ export class ApiError extends Error {
 }
 
 const messages: Record<string, string> = {
-  upload_too_large: "文件超过 20 MiB，请压缩后重试。",
-  too_many_pages: "PDF 超过 100 页，请先拆分。",
-  pdf_encrypted: "PDF 已加密，请解除密码保护后上传。",
-  invalid_pdf: "PDF 已损坏或无法解析，请检查原文件。",
-  unsupported_media_type: "仅支持 PDF、PNG 和 JPEG 文件。",
-  invalid_credentials: "邮箱或密码不正确，请重试。",
+  invalid_storage_key: "文件存储位置异常，请联系管理员。",
+  pdf_page_limit: "PDF 页数应为 1–100 页，请先拆分文件。",
+  invalid_or_encrypted_pdf: "PDF 已损坏或加密，请检查文件并解除密码保护。",
+  only_pdf_png_jpeg_supported: "仅支持 PDF、PNG 和 JPEG 文件。",
+  image_pixel_limit: "图片超过 2000 万像素，请降低分辨率。",
+  invalid_image: "图片内容无效或已损坏，请检查原文件。",
+  upload_size_limit: "文件超过 20 MiB，请压缩或拆分后上传。",
+  render_pixel_limit: "页面渲染超过像素限制，请降低分辨率。",
+  expires_at_must_be_future: "分享有效期必须晚于当前服务器时间。",
 };
+export function detailMessage(value: unknown, depth = 0): string {
+  if (depth > 4) return "";
+  if (typeof value === "string") return messages[value.trim()] ?? value.trim();
+  if (Array.isArray(value))
+    return value
+      .map((item) => detailMessage(item, depth + 1))
+      .filter(Boolean)
+      .join("；");
+  if (value && typeof value === "object") {
+    const item = value as Record<string, unknown>;
+    return detailMessage(
+      item.message ?? item.msg ?? item.detail ?? item.code,
+      depth + 1,
+    );
+  }
+  return "";
+}
 async function errorMessage(response: Response): Promise<string> {
   const fallback: Record<number, string> = {
     401: "登录已过期，请重新登录。",
@@ -60,23 +79,16 @@ async function errorMessage(response: Response): Promise<string> {
     404: "资源不存在或无权访问。",
     409: "操作冲突，请刷新后重试。",
     413: "文件超过 20 MiB。",
+    422: "输入参数或文件内容不符合要求，请检查后重试。",
     429: "操作过于频繁或配额不足，请稍后再试。",
     507: "存储空间不足，请联系管理员。",
   };
   try {
-    const text = await response.text();
-    const body = JSON.parse(text) as {
-      detail?: unknown;
-      error?: { message?: string; code?: string };
-    };
-    const detail = body.detail ?? body.error?.message ?? body.error?.code;
-    if (typeof detail === "string") return messages[detail] ?? detail;
-    if (Array.isArray(detail))
-      return detail
-        .map((item: { msg?: string }) => item.msg ?? "输入不符合要求")
-        .join("；");
+    const body = await response.json();
+    const message = detailMessage(body?.detail) || detailMessage(body?.error);
+    if (message) return message;
   } catch {
-    /* 不把代理 HTML 或服务堆栈展示给用户 */
+    /* 代理 HTML 不作为业务错误 */
   }
   return (
     fallback[response.status] ??
@@ -101,6 +113,7 @@ async function request(
       throw error;
     throw new ApiError(0, "无法连接服务，请检查网络和后端服务后重试。");
   }
+  if (init.signal?.aborted) throw new DOMException("请求已取消", "AbortError");
   if (!response.ok) {
     // 过时请求的 401 不能清除刚轮换的新令牌；匿名分享/登录不影响当前会话。
     if (
@@ -110,7 +123,6 @@ async function request(
       !["/auth/login", "/auth/register"].includes(path)
     ) {
       tokenStore.clear();
-      window.dispatchEvent(new Event(AUTH_EXPIRED));
     }
     throw new ApiError(response.status, await errorMessage(response));
   }

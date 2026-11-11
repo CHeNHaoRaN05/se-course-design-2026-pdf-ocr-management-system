@@ -5,6 +5,7 @@
   · 前端统一走本接口，避免维护两套权限口径。
 """
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -20,10 +21,11 @@ router = APIRouter(prefix="/search", tags=["03 OCR 与检索·丙"])
 @router.get("", response_model=dict)
 @router.get("/", response_model=dict, include_in_schema=False)
 def full_text(q: str = Query(min_length=1, max_length=100), limit: int = Query(20, ge=1, le=100),
-              offset: int = Query(0, ge=0),
+              offset: int = Query(0, ge=0, le=1_000_000),
               file_id: str | None = Query(None, pattern=r"^[0-9a-f]{32}$"),
               tag: str | None = Query(None, min_length=1, max_length=64),
               date_from: date | None = None, date_to: date | None = None,
+              media_type: Literal["application/pdf", "image/png", "image/jpeg"] | None = None,
               session: Session = Depends(get_session),
               user: Principal = Depends(current_user)):
     keyword = q.strip()
@@ -37,7 +39,7 @@ def full_text(q: str = Query(min_length=1, max_length=100), limit: int = Query(2
         raise bad_request("结束日期必须早于 9999-12-31")
     backend, items = search(session, user, keyword, limit=limit, offset=offset,
                            file_id=file_id, tag=tag.strip() if tag else None,
-                           date_from=date_from, date_to=date_to)
+                           date_from=date_from, date_to=date_to, media_type=media_type)
     return {"backend": backend, "items": items}
 
 

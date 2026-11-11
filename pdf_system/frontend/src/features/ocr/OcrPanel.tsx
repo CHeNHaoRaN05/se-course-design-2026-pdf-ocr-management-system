@@ -36,7 +36,7 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
   const identity = useRef(jobId);
   identity.current = jobId;
   const editor = !!me && me.role !== "viewer";
-  const active = !!job && !TERMINAL.has(job.status);
+  const active = !!jobId && (!job || !TERMINAL.has(job.status));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,24 +51,31 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
   useEffect(() => {
     if (!jobId) return;
     let stopped = false;
+    let failures = 0;
+    const controller = new AbortController();
     let timer = 0;
     async function tick() {
       let next: OcrJob | null = null;
       try {
-        const [nextJob, nextPages] = await Promise.all([getOcrJob(jobId!), listPages(jobId!)]);
+        const [nextJob, nextPages] = await Promise.all([getOcrJob(jobId!, controller.signal), listPages(jobId!, controller.signal)]);
         if (stopped) return;
+        failures = 0; setError("");
         next = nextJob; setJob(nextJob); setPages(nextPages);
         if (editor && TERMINAL.has(nextJob.status) && !settled.current.has(jobId!)) {
-          await settleJob(jobId!);
+          await settleJob(jobId!, controller.signal);
           if (!stopped) settled.current.add(jobId!);
         }
       } catch (e) {
-        if (!stopped) setError(e instanceof Error ? e.message : "查询任务失败");
+        if (stopped) return;
+        failures++;
+        const fatal = e instanceof ApiError && [401,403,404].includes(e.status);
+        setError(`${e instanceof Error ? e.message : "查询任务失败"}${failures >= 3 || fatal ? "；已停止自动重试，请手动刷新状态。" : ""}`);
+        if (failures >= 3 || fatal) return;
       }
       if (!stopped && (!next || !TERMINAL.has(next.status))) timer = window.setTimeout(tick, 1500);
     }
     void tick();
-    return () => { stopped = true; window.clearTimeout(timer); };
+    return () => { stopped = true; controller.abort(); window.clearTimeout(timer); };
   }, [jobId, refresh, editor]);
   const page = pages.find((item) => item.page_no === pageNo);
   useEffect(() => {

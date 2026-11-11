@@ -1,36 +1,27 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../../app/AuthProvider";
-import { api, ApiError } from "../../shared/http";
+import { api } from "../../shared/http";
 import {
   errorText,
   formatDate,
   roleNames,
   type Role,
   type UserInfo,
-} from "../../shared/management";
-import { Icon, Loading, Modal, Notice, PageHeading } from "../../shared/ui";
-import { useResource } from "../../shared/useResource";
+} from "../management/management";
+import { Icon, Loading, Modal, Notice, PageHeading } from "../management/ui";
+import { readAllPages } from "../management/pagination";
+import { useResource } from "../management/useResource";
 
 export default function UsersPage() {
   const { me } = useAuth();
   const [known, setKnown] = useState<UserInfo[]>([]);
   const users = useResource(async (signal) => {
-    try {
-      const items: UserInfo[] = [];
-      for (let offset = 0; ; offset += 100) {
-        const page = await api<UserInfo[]>(
-          `/auth/users?limit=100&offset=${offset}`,
-          { signal },
-        );
-        items.push(...page);
-        if (page.length < 100) break;
-      }
-      return { items, limited: false };
-    } catch (e) {
-      if (e instanceof ApiError && [404, 405].includes(e.status))
-        return { items: me ? [me] : [], limited: true };
-      throw e;
-    }
+    const items = await readAllPages(
+      (offset) =>
+        api<UserInfo[]>(`/auth/users?limit=100&offset=${offset}`, { signal }),
+      signal,
+    );
+    return { items };
   });
   const [id, setId] = useState("");
   const [operation, setOperation] = useState("role");
@@ -109,19 +100,13 @@ export default function UsersPage() {
           </button>
         }
       />
-      {users.data?.limited && (
-        <Notice tone="warning">
-          当前后端尚未开放用户列表。下方显示当前账号及本次已操作账号；输入目标用户
-          ID，仍可使用现有接口调整角色或启用状态。
-        </Notice>
-      )}
       {(error || users.error) && (
         <Notice tone="error">{error || users.error}</Notice>
       )}
       {message && <Notice tone="success">{message}</Notice>}
       <section className="panel">
         <div className="panel-heading">
-          <h2>{users.data?.limited ? "已知账号" : "用户列表"}</h2>
+          <h2>用户列表</h2>
           <input
             aria-label="搜索用户"
             value={q}

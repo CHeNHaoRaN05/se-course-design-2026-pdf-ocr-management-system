@@ -17,7 +17,7 @@ def _mysql_match() -> str:
 
 def search(session, user: Principal, q: str, *, limit: int, offset: int,
            file_id: str | None = None, tag: str | None = None,
-           date_from: date | None = None, date_to: date | None = None) -> tuple[str, list[dict]]:
+           date_from: date | None = None, date_to: date | None = None, media_type: str | None = None) -> tuple[str, list[dict]]:
     from ..ocr.bridge import is_ready
     if not is_ready():
         # 索引由 OCR 模块回写，未挂载时没有可检索数据，返回空集而不是 500
@@ -40,6 +40,9 @@ def search(session, user: Principal, q: str, *, limit: int, offset: int,
     if file_id:
         base += " AND f.id = :file_id"
         params["file_id"] = file_id
+    if media_type:
+        base += " AND f.media_type = :media_type"
+        params["media_type"] = media_type
     if tag:
         # EXISTS avoids duplicate hits when a file has several tags.
         base += """ AND EXISTS (

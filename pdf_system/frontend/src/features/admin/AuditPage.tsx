@@ -1,14 +1,15 @@
 import { useState, type FormEvent } from "react";
 import { api, downloadBlob } from "../../shared/http";
-import { formatDate, type AuditItem } from "../../shared/management";
+import { formatDate, type AuditItem } from "../management/management";
 import {
   EmptyState,
   Icon,
   Loading,
   Notice,
   PageHeading,
-} from "../../shared/ui";
-import { useResource } from "../../shared/useResource";
+} from "../management/ui";
+import { csvCell, validDateRange } from "../management/csv";
+import { useResource } from "../management/useResource";
 
 const actions: Record<string, string> = {
   file_uploaded: "上传文档",
@@ -41,16 +42,11 @@ export default function AuditPage() {
     },
     [submitted, offset],
   );
-  const unavailable = [404, 405].includes(resource.status);
   const rows = resource.data?.slice(0, 20) ?? [];
   function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    if (
-      filters.date_from &&
-      filters.date_to &&
-      filters.date_from > filters.date_to
-    ) {
+    if (!validDateRange(filters.date_from, filters.date_to)) {
       setError("开始日期不能晚于结束日期。");
       return;
     }
@@ -58,14 +54,12 @@ export default function AuditPage() {
     setSubmitted({ ...filters, actor_id: filters.actor_id.trim() });
   }
   function exportCsv() {
-    const escape = (value: string) =>
-      `"${(/^[=+@\-\t\r]/.test(value) ? "'" : "") + value.replace(/"/g, '""')}"`;
     const lines = [
       ["时间", "用户 ID", "动作", "资源 ID"],
       ...rows.map((row) => [
-        formatDate(row.created_at, true),
+        row.created_at,
         row.actor_id,
-        actions[row.action] ?? row.action,
+        row.action,
         row.resource_id ?? "",
       ]),
     ];
@@ -73,7 +67,7 @@ export default function AuditPage() {
       new Blob(
         [
           "\uFEFF",
-          lines.map((line) => line.map(escape).join(",")).join("\r\n"),
+          lines.map((line) => line.map(csvCell).join(",")).join("\r\n"),
         ],
         { type: "text/csv;charset=utf-8" },
       ),
@@ -102,12 +96,7 @@ export default function AuditPage() {
           </>
         }
       />
-      {unavailable && (
-        <Notice tone="warning">
-          当前后端尚未开放主系统审计查询接口，暂时无法获取操作日志。这里不会用识别模块日志代替系统审计。
-        </Notice>
-      )}
-      {(error || (resource.error && !unavailable)) && (
+      {(error || resource.error) && (
         <Notice tone="error">{error || resource.error}</Notice>
       )}
       <section className="panel">
@@ -179,12 +168,8 @@ export default function AuditPage() {
         ) : !rows.length ? (
           <EmptyState
             icon="list"
-            title={unavailable ? "等待接入审计数据" : "暂无操作记录"}
-            description={
-              unavailable
-                ? "查询界面已就绪，需接入主系统审计接口。"
-                : "试试调整筛选条件或稍后刷新。"
-            }
+            title={resource.error ? "审计加载失败" : "暂无操作记录"}
+            description="请检查权限、筛选条件和服务状态后重试。"
           />
         ) : (
           <div className="table-scroll">

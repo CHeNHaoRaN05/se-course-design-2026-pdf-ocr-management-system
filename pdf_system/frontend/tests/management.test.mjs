@@ -18,11 +18,10 @@ async function load(path, replacements = {}) {
     `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`
   );
 }
-const management = await load("../src/shared/management.ts");
+const management = await load("../src/features/management/management.ts");
 const pdf = await load("../src/features/files/pdfTools.ts", {
   '"pdf-lib"': JSON.stringify(import.meta.resolve("pdf-lib")),
 });
-const trash = await load("../src/features/files/trashHistory.ts");
 
 test("folder and tag validation applies depth limits, normalization and deduplication", () => {
   assert.equal(
@@ -105,27 +104,4 @@ test("PDF merge/split preserves requested page order and original documents", as
     pdf.mergePdfs([(await large.save()).buffer, second.buffer]),
     /100 页/,
   );
-});
-test("trash fallback is isolated by account and tolerates unavailable storage", () => {
-  const storage = new Map();
-  globalThis.localStorage = {
-    getItem: (key) => storage.get(key),
-    setItem: (key, value) => storage.set(key, value),
-  };
-  const file = { id: "one", name: "报告.pdf", tags: [] };
-  trash.rememberTrash("alice", file);
-  trash.rememberTrash("alice", file);
-  assert.equal(trash.readTrash("alice").length, 1);
-  assert.equal(trash.readTrash("bob").length, 0);
-  trash.forgetTrash("alice", "one");
-  assert.equal(trash.readTrash("alice").length, 0);
-  globalThis.localStorage = {
-    getItem() {
-      throw Error();
-    },
-    setItem() {
-      throw Error();
-    },
-  };
-  assert.doesNotThrow(() => trash.rememberTrash("alice", file));
 });

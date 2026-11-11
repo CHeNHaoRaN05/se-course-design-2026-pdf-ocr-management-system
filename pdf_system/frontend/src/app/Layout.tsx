@@ -7,8 +7,8 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
-import { Icon, Notice } from "../shared/ui";
-import { errorText, roleNames } from "../shared/management";
+import { Icon, Notice } from "../features/management/ui";
+import { errorText, roleNames } from "../features/management/management";
 
 const groups = [
   {

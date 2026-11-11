@@ -1,4 +1,4 @@
-import type { FileItem } from "./types";
+import type { FileItem } from "../../shared/types";
 export type Role = "user" | "viewer" | "admin";
 export interface UserInfo {
   id: string;
@@ -23,6 +23,7 @@ export interface ShareItem {
   file_id: string;
   token: string;
   share_url: string;
+  expired: boolean;
   expires_at: string | null;
   access_code: string | null;
   allow_download: boolean;
@@ -47,7 +48,8 @@ export const roleNames: Record<Role, string> = {
   admin: "管理员",
 };
 export function formatBytes(bytes: number): string {
-  if (!bytes) return "0 B";
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1) return `${bytes} B`;
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), 3);
   return `${(bytes / 1024 ** index).toLocaleString("zh-CN", { maximumFractionDigits: index ? 1 : 0 })} ${["B", "KiB", "MiB", "GiB"][index]}`;
 }
@@ -58,6 +60,7 @@ export function asDate(value: string): Date {
 export function formatDate(value?: string | null, time = false): string {
   if (!value) return "—";
   const date = asDate(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.replace(/-/g, "/");
   return Number.isNaN(date.getTime())
     ? "—"
     : date.toLocaleString(
@@ -101,18 +104,34 @@ export function parseTags(value: string): string[] {
     throw new Error("最多 20 个标签，每个标签不超过 64 个字符。");
   return tags;
 }
+export function normalizeFilename(value: string): string {
+  const name = value
+    .trim()
+    .replace(/[\\/]/g, "_")
+    .replace(/[\u0000-\u001f\u007f]/g, "");
+  if (!name || name === "." || name === "..")
+    throw new Error("文件名不能为空。");
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot).slice(0, 20) : "";
+  return (ext ? name.slice(0, dot) : name).slice(0, 255 - ext.length) + ext;
+}
 export function uniqueFilename(
-  name: string,
+  value: string,
   existing: Iterable<string>,
 ): string {
+  const name = normalizeFilename(value);
   const names = new Set(existing);
   if (!names.has(name)) return name;
   const dot = name.lastIndexOf(".");
-  const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : "";
+  const stem = ext ? name.slice(0, dot) : name;
   let index = 1;
-  while (names.has(`${stem}(${index})${ext}`)) index++;
-  return `${stem}(${index})${ext}`;
+  let next = name;
+  while (names.has(next)) {
+    const tail = `(${index++})${ext}`;
+    next = stem.slice(0, 255 - tail.length) + tail;
+  }
+  return next;
 }
 export const statusNames: Record<string, string> = {
   none: "未识别",

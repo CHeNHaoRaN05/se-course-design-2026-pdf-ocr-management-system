@@ -3,7 +3,8 @@
 说明：修改角色/禁用账号由管理员经 PATCH /auth/users/{user_id}/role、/disabled 完成
 （FR-USER-03 / FR-USER-04）。FR 编号以 docs/team/backend.md 的团队标准为准。
 """
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Query
+from sqlalchemy import select
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -52,6 +53,8 @@ def set_role(user_id: str, body: RoleUpdate, session: Session = Depends(get_sess
     target = session.get(User, user_id)
     if target is None:
         raise not_found()
+    if target.id == admin.user_id and body.role != "admin":
+        raise bad_request("不能降低当前管理员账号的角色")
     target.role = body.role
     audit(session, admin.user_id, "user_role_changed", user_id, role=body.role)
     session.commit()
@@ -100,3 +103,11 @@ def set_disabled_endpoint(user_id: str, body: DisabledUpdate,
     session.commit()
     return UserOut(id=target.id, email=target.email, display_name=target.display_name,
                    role=target.role, disabled=target.disabled, created_at=target.created_at)
+
+
+@router.get("/users", response_model=list[UserOut])
+def list_users(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=1_000_000),
+               session: Session = Depends(get_session), admin: Principal = Depends(require_admin)):
+    rows = session.scalars(select(User).order_by(User.created_at.desc(), User.id).limit(limit).offset(offset))
+    return [UserOut(id=r.id, email=r.email, display_name=r.display_name, role=r.role,
+                    disabled=r.disabled, created_at=r.created_at) for r in rows]

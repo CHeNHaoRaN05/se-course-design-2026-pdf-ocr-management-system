@@ -1,8 +1,8 @@
-# API 契约（OpenAPI 3.0 骨架）
+# API 契约（OpenAPI 基线与审查增量）
 # 与 docs/architecture.md 第 3 节的接口总表一一对应（共 59 个：主系统 42 + OCR 模块 17）。
 # 本文件是「契约先行」的载体：改接口先改这里（或对应契约 C*.md）并单独提 PR，确认后再动代码。
 # 详细请求/响应结构以运行时 Swagger（http://127.0.0.1:8000/docs）为准。
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: PDF OCR Management System API
   description: |
@@ -25,6 +25,377 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  # 02 review additions, see reviews/02-api-additions.md
+  /files/query:
+    get:
+      tags:
+      - 02 文件管理
+      summary: Query
+      operationId: query_api_v1_files_query_get
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 255
+          default: ''
+          title: Q
+      - name: folder
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Folder
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: media_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - application/pdf
+            - image/png
+            - image/jpeg
+            type: string
+          - type: 'null'
+          title: Media Type
+      - name: date_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date From
+      - name: date_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date To
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - none
+            - queued
+            - running
+            - retry_wait
+            - succeeded
+            - partial_success
+            - failed
+            - cancelled
+            type: string
+          - type: 'null'
+          title: Status
+      - name: sort
+        in: query
+        required: false
+        schema:
+          enum:
+          - newest
+          - name
+          - size
+          - pages
+          - status
+          type: string
+          default: newest
+          title: Sort
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /files/trash:
+    get:
+      tags:
+      - 02 文件管理
+      summary: Trash
+      operationId: trash_api_v1_files_trash_get
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /files/bulk:
+    post:
+      tags:
+      - 02 文件管理
+      summary: Bulk
+      operationId: bulk_api_v1_files_bulk_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Bulk'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /files/merge:
+    post:
+      tags:
+      - 02 文件管理
+      summary: Merge
+      operationId: merge_api_v1_files_merge_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Merge'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /files/{file_id}/split:
+    post:
+      tags:
+      - 02 文件管理
+      summary: Split
+      operationId: split_api_v1_files__file_id__split_post
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: file_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: File Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Split'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileOut'
+                title: Response Split Api V1 Files  File Id  Split Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/users:
+    get:
+      tags:
+      - 01 用户与权限·甲
+      summary: List Users
+      operationId: list_users_api_v1_auth_users_get
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserOut'
+                title: Response List Users Api V1 Auth Users Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /audit:
+    get:
+      tags:
+      - 01 审计查询
+      summary: Listing
+      operationId: listing_api_v1_audit_get
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Actor Id
+      - name: action
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Action
+      - name: date_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date From
+      - name: date_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date To
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /health:
     get:
       tags: [system]
@@ -99,6 +470,20 @@ paths:
   # ── 线01 陈：分享与协作（FR-SHR-01/02/03）──────────────
   /share:
     post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file_id]
+              properties:
+                file_id: { type: string }
+                expires_in_days: { type: integer, enum: [1, 7, 30], description: 服务端时钟计算有效期，缺省7天 }
+                expires_at: { type: [string, "null"], format: date-time, description: 兼容字段，未来30天以内，不能与expires_in_days同传 }
+                access_code: { type: [string, "null"], maxLength: 32, description: 可选ASCII字母数字提取码，空字符串视为不设置 }
+                allow_download: { type: boolean, default: true }
       tags: [share]
       summary: 创建分享链接（有效期/提取码/允许下载）
       x-permission: editor
@@ -363,6 +748,10 @@ paths:
       description: 所有过滤条件取交集；排除回收站，非管理员仅能检索自己的文件。历史由前端按账号保存在当前浏览器，不新增服务端历史表。
       parameters:
         - in: query
+          name: media_type
+          schema: { type: string, enum: [application/pdf, image/png, image/jpeg] }
+          description: 精确文件类型，与其他筛选条件取交集。
+        - in: query
           name: q
           required: true
           schema: { type: string, minLength: 1, maxLength: 100 }
@@ -403,6 +792,169 @@ components:
       description: JWT（HS256）由主系统签发；OCR 模块经 dependency_overrides 复用 resolve_principal 验签（契约 C1）。
 
   schemas:
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    FileOut:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        folder:
+          type: string
+          title: Folder
+        media_type:
+          type: string
+          title: Media Type
+        size:
+          type: integer
+          title: Size
+        page_count:
+          type: integer
+          title: Page Count
+        version:
+          type: integer
+          title: Version
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - name
+      - folder
+      - media_type
+      - size
+      - page_count
+      - version
+      - created_at
+      title: FileOut
+    Merge:
+      properties:
+        file_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: File Ids
+        name:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Name
+      additionalProperties: false
+      type: object
+      required:
+      - file_ids
+      - name
+      title: Merge
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    Bulk:
+      properties:
+        file_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: File Ids
+        action:
+          type: string
+          enum:
+          - move
+          - tag
+          - delete
+          title: Action
+        folder:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Folder
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 20
+          - type: 'null'
+          title: Tags
+        append_tags:
+          type: boolean
+          title: Append Tags
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - file_ids
+      - action
+      title: Bulk
+    Split:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        groups:
+          anyOf:
+          - items:
+              items:
+                type: integer
+              type: array
+            type: array
+            maxItems: 100
+            minItems: 1
+          - type: 'null'
+          title: Groups
+        every:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 1.0
+          - type: 'null'
+          title: Every
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: Split
     UserOut:
       type: object
       properties:
@@ -425,3 +977,7 @@ components:
       type: object
       properties:
         role: { type: string, enum: [user, viewer, admin] }
+
+# 2026-11-11 02-line review additions are documented in docs/reviews/02-api-additions.md.
+# Runtime /openapi.json includes files/query, files/trash, files/bulk, files/merge,
+# files/{file_id}/split, auth/users and audit. Existing C1–C5 signatures are unchanged.

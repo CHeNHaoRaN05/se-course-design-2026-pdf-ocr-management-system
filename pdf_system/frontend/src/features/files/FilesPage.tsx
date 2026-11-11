@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
 import { api, downloadBlob } from "../../shared/http";
-import type { FileItem, OcrJob } from "../../shared/types";
+import type { FileItem } from "../../shared/types";
 import {
   errorText,
   formatBytes,
   formatDate,
   statusNames,
-} from "../../shared/management";
+} from "../management/management";
 import {
   EmptyState,
   FileGlyph,
@@ -18,17 +18,15 @@ import {
   Notice,
   PageHeading,
   Pagination,
-} from "../../shared/ui";
-import { useResource } from "../../shared/useResource";
-import { allFiles, fileBlob } from "./filesApi";
+} from "../management/ui";
+import { useResource } from "../management/useResource";
+import { queryFiles, fileBlob } from "./filesApi";
 import FileActionDialog, { type FileAction } from "./FileActionDialog";
 
 const PAGE_SIZE = 12;
 export default function FilesPage() {
   const { me } = useAuth();
   const editor = me?.role !== "viewer";
-  const resource = useResource((signal) => allFiles(signal));
-  const files = resource.data ?? [];
   const [q, setQ] = useState("");
   const [folder, setFolder] = useState("");
   const [tag, setTag] = useState("");
@@ -45,95 +43,80 @@ export default function FilesPage() {
   const [detail, setDetail] = useState<FileItem | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [jobs, setJobs] = useState<Record<string, string>>({});
-  const [statusReady, setStatusReady] = useState(false);
   const [hash, setHash] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const resource = useResource(
+    (signal) =>
+      queryFiles(
+        {
+          q,
+          folder,
+          tag,
+          ...(type ? { media_type: type } : {}),
+          ...(status ? { status } : {}),
+          sort,
+          ...(dateFrom ? { date_from: dateFrom } : {}),
+          ...(dateTo ? { date_to: dateTo } : {}),
+          limit: String(PAGE_SIZE),
+          offset: String((page - 1) * PAGE_SIZE),
+        },
+        signal,
+      ),
+    [q, folder, tag, type, status, sort, dateFrom, dateTo, page],
+  );
+  const metadata = useResource(
+    async (signal) => {
+      const [folders, tags, overview] = await Promise.all([
+        api<string[]>("/files/folders", { signal }),
+        api<string[]>("/files/tags", { signal }),
+        api<{ files: number; storage_bytes: number }>("/quota/overview", {
+          signal,
+        }),
+      ]);
+      return { folders, tags, overview };
+    },
+    [resource.data],
+  );
+  const files = resource.data?.items ?? [];
+  const folders = [...new Set((metadata.data?.folders ?? []).flatMap(path => { const parts=path.split("/").filter(Boolean); return parts.map((_,i)=>"/"+parts.slice(0,i+1).join("/")); }))].sort();
+  const tags = metadata.data?.tags ?? [];
+  const statusReady = resource.data?.status_available ?? false;
+  const filtered = files;
+  const currentPage = page;
+  const visible = files;
+  const hasFilters = !!(
+    q ||
+    folder ||
+    tag ||
+    type ||
+    status ||
+    dateFrom ||
+    dateTo
+  );
   useEffect(() => {
-    const controller = new AbortController();
-    setStatusReady(false);
-    setJobs({});
-    void (async () => {
-      const capability = await api<{ mounted: boolean }>(
-        "/ocr-host/capabilities",
-        { signal: controller.signal },
-      );
-      if (!capability.mounted) return;
-      const latest: Record<string, string> = {};
-      for (let offset = 0; ; offset += 100) {
-        const batch = await api<OcrJob[]>(
-          `/ocr/jobs?limit=100&offset=${offset}`,
-          { signal: controller.signal },
-        );
-        for (const job of batch)
-          if (!latest[job.file_id]) latest[job.file_id] = job.status;
-        if (batch.length < 100) break;
-      }
-      if (!controller.signal.aborted) {
-        setJobs(latest);
-        setStatusReady(true);
-      }
-    })().catch(() => {
-      /* 文档列表仍可独立使用，识别状态标记不可用 */
-    });
-    return () => controller.abort();
-  }, [resource.data]);
+    if (
+      resource.data &&
+      page > 1 &&
+      (page - 1) * PAGE_SIZE >= resource.data.total
+    )
+      setPage(Math.max(1, Math.ceil(resource.data.total / PAGE_SIZE)));
+  }, [resource.data, page]);
+  const picked = selected
+    .map((id) => files.find((file) => file.id === id))
+    .filter((file): file is (typeof files)[number] => !!file);
   useEffect(() => {
     setPage(1);
     setSelected([]);
-  }, [q, folder, tag, type, status, sort]);
-  const folders = useMemo(
-    () =>
-      [
-        ...new Set(
-          files.flatMap((file) => {
-            const parts = file.folder.split("/").filter(Boolean);
-            return parts.map((_, i) => "/" + parts.slice(0, i + 1).join("/"));
-          }),
-        ),
-      ].sort(),
-    [files],
-  );
-  const tags = [...new Set(files.flatMap((file) => file.tags))].sort();
-  const filtered = useMemo(
-    () =>
-      files
-        .filter(
-          (file) =>
-            file.name
-              .toLocaleLowerCase()
-              .includes(q.trim().toLocaleLowerCase()) &&
-            (!folder ||
-              file.folder === folder ||
-              file.folder.startsWith(folder + "/")) &&
-            (!tag || file.tags.includes(tag)) &&
-            (!type ||
-              (type === "pdf"
-                ? file.media_type === "application/pdf"
-                : file.media_type.startsWith("image/"))) &&
-            (!status || (statusReady && (jobs[file.id] ?? "none") === status)),
-        )
-        .sort((a, b) =>
-          sort === "name"
-            ? a.name.localeCompare(b.name, "zh-CN")
-            : sort === "size"
-              ? b.size - a.size
-              : sort === "pages"
-                ? b.page_count - a.page_count
-                : b.created_at.localeCompare(a.created_at),
-        ),
-    [files, q, folder, tag, type, status, statusReady, jobs, sort],
-  );
-  const currentPage = Math.min(
-    page,
-    Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
-  );
-  const visible = filtered.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
-  const picked = selected
-    .map((id) => files.find((file) => file.id === id))
-    .filter((file): file is FileItem => !!file);
+  }, [q, folder, tag, type, status, sort, dateFrom, dateTo]);
+  useEffect(() => {
+    setSelected([]);
+  }, [page]);
+  // 状态服务不可用时仍展示服务端返回的文档；解除旧条件使用户能重新选择。
+  useEffect(() => {
+    if (resource.data && !resource.data.status_available && status)
+      setStatus("");
+  }, [resource.data, status]);
   function toggle(id: string) {
     setSelected((previous) =>
       previous.includes(id)
@@ -141,7 +124,7 @@ export default function FilesPage() {
         : [...previous, id],
     );
   }
-  function open(kind: FileAction, items = picked) {
+  function open(kind: FileAction, items: FileItem[] = picked) {
     if (editor && items.length) {
       setMessage("");
       setAction({ kind, files: items });
@@ -160,7 +143,7 @@ export default function FilesPage() {
     }
   }
   const fileStatus = (file: FileItem) =>
-    statusReady ? (jobs[file.id] ?? "none") : "unknown";
+    files.find((item) => item.id === file.id)?.status ?? "unknown";
   const actions = (file: FileItem) => (
     <div className="file-actions">
       <Link className="text-button" to={`/files/${file.id}`}>
@@ -225,8 +208,8 @@ export default function FilesPage() {
             <Icon name="folder" />
           </span>
           <span>
-            <strong>{resource.data ? files.length : "—"}</strong>
-            <small>全部文档</small>
+            <strong>{metadata.data?.overview.files ?? "—"}</strong>
+            <small>我的文档</small>
           </span>
         </div>
         <div>
@@ -239,7 +222,7 @@ export default function FilesPage() {
                 ? files.filter((f) => f.media_type === "application/pdf").length
                 : "—"}
             </strong>
-            <small>PDF 文档</small>
+            <small>本页 PDF 文档</small>
           </span>
         </div>
         <div>
@@ -252,7 +235,7 @@ export default function FilesPage() {
                 ? files.reduce((sum, f) => sum + f.page_count, 0)
                 : "—"}
             </strong>
-            <small>文档总页数</small>
+            <small>本页文档页数</small>
           </span>
         </div>
         <div>
@@ -262,10 +245,10 @@ export default function FilesPage() {
           <span>
             <strong>
               {resource.data
-                ? formatBytes(files.reduce((sum, f) => sum + f.size, 0))
+                ? formatBytes(metadata.data?.overview.storage_bytes ?? 0)
                 : "—"}
             </strong>
-            <small>可见文档存储</small>
+            <small>我的文档存储</small>
           </span>
         </div>
       </div>
@@ -277,6 +260,11 @@ export default function FilesPage() {
               重新加载
             </button>
           )}
+        </Notice>
+      )}
+      {resource.data && !statusReady && (
+        <Notice tone="warning">
+          识别状态暂不可用，已取消状态筛选，文档仍可正常访问。
         </Notice>
       )}
       <div className="library-layout">
@@ -291,7 +279,7 @@ export default function FilesPage() {
               onClick={() => setFolder("")}
             >
               <Icon name="folder" size={17} />
-              全部文档<span>{files.length}</span>
+              全部文档
             </button>
             {folders.map((path) => (
               <button
@@ -303,15 +291,7 @@ export default function FilesPage() {
               >
                 <Icon name="folder" size={16} />
                 <span className="folder-name">{path.split("/").pop()}</span>
-                <small>
-                  {
-                    files.filter(
-                      (file) =>
-                        file.folder === path ||
-                        file.folder.startsWith(path + "/"),
-                    ).length
-                  }
-                </small>
+
               </button>
             ))}
           </div>
@@ -343,7 +323,7 @@ export default function FilesPage() {
           <div className="panel-heading">
             <h2>
               {folder ? folder.split("/").pop() : "全部文档"}
-              <span className="count-badge">{filtered.length}</span>
+              <span className="count-badge">{resource.data?.total ?? 0}</span>
             </h2>
             <div className="segmented">
               <button
@@ -380,8 +360,9 @@ export default function FilesPage() {
               onChange={(e) => setType(e.target.value)}
             >
               <option value="">所有类型</option>
-              <option value="pdf">PDF 文档</option>
-              <option value="image">图片</option>
+              <option value="application/pdf">PDF 文档</option>
+              <option value="image/png">PNG 图片</option>
+              <option value="image/jpeg">JPEG 图片</option>
             </select>
             <select
               aria-label="识别状态"
@@ -409,7 +390,24 @@ export default function FilesPage() {
               <option value="name">名称排序</option>
               <option value="size">大小排序</option>
               <option value="pages">页数排序</option>
+              <option value="status">状态排序</option>
             </select>
+            <label>
+              开始日期（UTC）
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </label>
+            <label>
+              结束日期（UTC）
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </label>
           </div>
           {tag && (
             <div className="active-filter">
@@ -478,17 +476,17 @@ export default function FilesPage() {
           ) : !filtered.length ? (
             <EmptyState
               title={
-                files.length
+                hasFilters
                   ? "没有符合条件的文档"
                   : "你的文档空间，等待第一份资料"
               }
               description={
-                files.length
+                hasFilters
                   ? "试试调整关键词、分类或筛选条件。"
                   : "上传 PDF 或图片，开始构建自己的资料库。"
               }
               action={
-                editor && !files.length ? (
+                editor && !hasFilters ? (
                   <Link className="button primary" to="/upload">
                     <Icon name="upload" />
                     上传第一份文档
@@ -501,6 +499,8 @@ export default function FilesPage() {
                       setTag("");
                       setType("");
                       setStatus("");
+                      setDateFrom("");
+                      setDateTo("");
                     }}
                   >
                     清除筛选
@@ -659,7 +659,7 @@ export default function FilesPage() {
           {!resource.loading && (
             <Pagination
               page={currentPage}
-              total={filtered.length}
+              total={resource.data?.total ?? 0}
               pageSize={PAGE_SIZE}
               onChange={setPage}
             />
@@ -694,6 +694,10 @@ export default function FilesPage() {
             <dd>{formatBytes(detail.size)}</dd>
             <dt>总页数</dt>
             <dd>{detail.page_count} 页</dd>
+            <dt>识别代次</dt>
+            <dd>
+              {files.find((f) => f.id === detail.id)?.generation ?? "不可用"}
+            </dd>
             <dt>版本</dt>
             <dd>v{detail.version}</dd>
             <dt>上传时间</dt>
@@ -716,7 +720,10 @@ export default function FilesPage() {
               onClick={async () => {
                 setBusy(true);
                 try {
-                  if (!crypto.subtle) throw new Error("请使用 HTTPS 或 localhost 访问，以计算文件校验值。");
+                  if (!crypto.subtle)
+                    throw new Error(
+                      "请使用 HTTPS 或 localhost 访问，以计算文件校验值。",
+                    );
                   const digest = await crypto.subtle.digest(
                     "SHA-256",
                     await (await fileBlob(detail.id)).arrayBuffer(),

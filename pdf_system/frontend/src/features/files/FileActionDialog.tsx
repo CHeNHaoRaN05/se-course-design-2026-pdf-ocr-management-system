@@ -1,23 +1,12 @@
 import { useState, type FormEvent } from "react";
 import type { FileItem } from "../../shared/types";
-import { Icon, Modal, Notice } from "../../shared/ui";
+import { Icon, Modal, Notice } from "../management/ui";
 import {
   errorText,
   normalizeFolder,
   parseTags,
-  uniqueFilename,
-} from "../../shared/management";
-import {
-  allFiles,
-  deleteFile,
-  fileBlob,
-  updateFile,
-  uploadFile,
-  validateUpload,
-} from "./filesApi";
-import { useAuth } from "../../app/AuthProvider";
-import { rememberTrash } from "./trashHistory";
-
+} from "../management/management";
+import { bulkFiles, mergeFiles, splitFile, updateFile } from "./filesApi";
 export type FileAction =
   | "rename"
   | "move"
@@ -49,7 +38,6 @@ export default function FileActionDialog({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const { me } = useAuth();
   const [value, setValue] = useState(
     action === "rename"
       ? files[0].name
@@ -91,74 +79,41 @@ export default function FileActionDialog({
           throw new Error("合并后的总页数不能超过 100 页。");
         if (!name.trim() || /[\\/:*?"<>|]/.test(name))
           throw new Error("请输入合法的输出文件名。");
-        const { mergePdfs, splitPdf, splitGroups } = await import("./pdfTools");
-        // 先验证页段再下载；一次只加载所选 PDF，模块按需加载。
-        const groups =
-          action === "split"
-            ? splitGroups(
-                value,
-                files[0].page_count,
-                mode === "every" ? Number(every) : undefined,
-              )
-            : [];
-        const buffers: ArrayBuffer[] = [];
-        for (const file of order)
-          buffers.push(await (await fileBlob(file.id)).arrayBuffer());
-        const output =
-          action === "merge"
-            ? [await mergePdfs(buffers)]
-            : await splitPdf(buffers[0], groups);
-        const names = new Set((await allFiles()).map((file) => file.name));
-        for (let i = 0; i < output.length; i++) {
-          const proposed =
-            action === "merge"
-              ? `${name.trim().replace(/\.pdf$/i, "")}.pdf`
-              : `${name.trim()}-${i + 1}.pdf`;
-          const filename = uniqueFilename(proposed, names);
-          try {
-            const file = new File([output[i]], filename, {
-              type: "application/pdf",
-            });
-            await validateUpload(file);
-            await uploadFile(file);
-            names.add(filename);
-            record({ name: filename, ok: true });
-          } catch (e) {
-            record({ name: filename, ok: false, message: errorText(e) });
-          }
+        if (action === "merge") {
+          const result = await mergeFiles(
+            order.map((file) => file.id),
+            name.trim(),
+          );
+          record({ name: result.name, ok: true });
+        } else {
+          const { splitGroups } = await import("./pdfTools");
+          const groups = splitGroups(
+            value,
+            files[0].page_count,
+            mode === "every" ? Number(every) : undefined,
+          );
+          const output = await splitFile(files[0].id, {
+            name: name.trim(),
+            groups: groups.map((group) => group.map((page) => page + 1)),
+          });
+          output.forEach((file) => record({ name: file.name, ok: true }));
         }
+      } else if (action === "rename") {
+        if (!value.trim() || value.trim().length > 255 || /[\\/]/.test(value))
+          throw new Error("请输入合法文件名。");
+        const updated = await updateFile(files[0].id, { name: value.trim() });
+        record({ name: updated.name, ok: true });
       } else {
         const folder = action === "move" ? normalizeFolder(value) : undefined;
         const tags = action === "tag" ? parseTags(value) : undefined;
-        if (
-          action === "rename" &&
-          (!value.trim() || value.trim().length > 255 || /[\\/]/.test(value))
-        )
-          throw new Error("文件名不能为空、包含路径分隔符或超过 255 个字符。");
-        for (const file of files) {
-          try {
-            if (action === "delete") {
-              await deleteFile(file.id);
-              if (me) rememberTrash(me.id, file);
-            } else
-              await updateFile(
-                file.id,
-                action === "rename"
-                  ? { name: value.trim() }
-                  : action === "move"
-                    ? { folder }
-                    : {
-                        tags:
-                          files.length === 1
-                            ? tags
-                            : [...new Set([...file.tags, ...tags!])],
-                      },
-              );
-            record({ name: file.name, ok: true });
-          } catch (e) {
-            record({ name: file.name, ok: false, message: errorText(e) });
-          }
-        }
+        const result = await bulkFiles({
+          file_ids: files.map((file) => file.id),
+          action,
+          folder,
+          tags,
+          append_tags: files.length > 1,
+        });
+        result.items.forEach(record);
       }
       setDone(true);
     } catch (e) {
@@ -225,7 +180,7 @@ export default function FileActionDialog({
             {action === "merge" && (
               <>
                 <Notice>
-                  按下方顺序在浏览器中合并，然后上传为新文件。原文件保留，总页数最多
+                  按下方顺序由服务端合并并保存为新文件。原文件保留，总页数最多
                   100 页。
                 </Notice>
                 <ol className="merge-order">
@@ -272,7 +227,7 @@ export default function FileActionDialog({
             {action === "split" && (
               <>
                 <Notice>
-                  拆分会生成新文件，原文件保留。每个逗号分隔的页段生成一份文件，未选中的页面不会导出。
+                  服务端拆分会生成新文件，原文件保留。每个逗号分隔的页段生成一份文件，未选中的页面不会导出。
                 </Notice>
                 <label>
                   拆分方式

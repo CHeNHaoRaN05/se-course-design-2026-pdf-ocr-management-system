@@ -3,11 +3,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
 import { api } from "../../shared/http";
 import {
-  asDate,
   errorText,
   formatDate,
   type ShareItem,
-} from "../../shared/management";
+} from "../management/management";
 import {
   EmptyState,
   Icon,
@@ -16,8 +15,8 @@ import {
   Notice,
   PageHeading,
   Pagination,
-} from "../../shared/ui";
-import { useResource } from "../../shared/useResource";
+} from "../management/ui";
+import { useResource } from "../management/useResource";
 import { allFiles } from "../files/filesApi";
 
 export const sharePageUrl = (token: string) =>
@@ -53,17 +52,17 @@ export default function SharesPage() {
     if (busy || !editor) return;
     setError("");
     setMessage("");
+    if (code && !/^[A-Za-z0-9]{1,32}$/.test(code)) {
+      setError("提取码只允许1至32位字母和数字。");
+      return;
+    }
     setBusy(true);
     try {
-      // 当前服务端与数据库使用 naive UTC，必须移除 ISO 的 Z，避免 aware/naive datetime 比较失败。
-      const expires = new Date(Date.now() + Number(days) * 86400000)
-        .toISOString()
-        .replace(/Z$/, "");
       const share = await api<ShareItem>("/share", {
         method: "POST",
         body: JSON.stringify({
           file_id: fileId,
-          expires_at: expires,
+          expires_in_days: Number(days),
           access_code: code.trim() || null,
           allow_download: download,
         }),
@@ -220,9 +219,7 @@ export default function SharesPage() {
             <>
               <div className="share-list">
                 {items.slice((current - 1) * 8, current * 8).map((share) => {
-                  const expired =
-                    share.expires_at &&
-                    asDate(share.expires_at).getTime() <= Date.now();
+                  const expired = share.expired;
                   return (
                     <article className="share-card" key={share.id}>
                       <div className="row">

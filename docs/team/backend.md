@@ -45,9 +45,9 @@
 
 | 编号 | 任务 | 位置 | 状态 |
 |---|---|---|---|
-| FR-FILE-07 | 批量操作（删 / 移动 / 打标） | `files/router.py` 新增 `POST /files/bulk` | 未开工 |
-| FR-FILE-08 | 合并 / 拆分 PDF | `files/router.py:3` 已标注"W7 补"，用 `pypdfium2`（`core/media.py` 已在用） | 未开工 |
-| FR-FILE-09 | 文件版本与代次 | 需新增模型字段 → **触发重建开发库** | 未开工 |
+| FR-FILE-07 | 批量操作（删 / 移动 / 打标） | `files/management.py`：归属预检、逐项事务与结果汇总 | 本地已实现并验证，待 PR 评审 |
+| FR-FILE-08 | 合并 / 拆分 PDF | `files/management.py`：服务端 PDFium、源文件校验、100页限制、失败回滚清理 | 本地已实现并验证，待 PR 评审 |
+| FR-FILE-09 | 文件版本与代次 | 查询接口读取既有 OCR generation；历史文件版本管理尚未实现 | 代次展示已实现，版本管理待办 |
 | FR-READ-04 | 缩略图侧栏 | `ReaderPage.tsx:79` 有占位文案 | 未开工 |
 | FR-READ-05 | 目录大纲 | | 未开工 |
 | FR-READ-06 | 页内搜索与命中高亮 | 需 pdf.js `TextLayer` + `findController` | 未开工 |
@@ -149,3 +149,7 @@
 
 **任何一侧修改校验规则，都必须同步另一侧**（契约 C2）。
 例如岳提高了页数上限而黄没同步 → 上传成功但 worker 渲染失败，且报错指向 OCR 侧，极难定位。
+
+## 2026-11-11 02 线审查修复
+
+文件服务端分页（total、类型/日期/状态筛选、状态排序）与回收站列表已补齐。01 线 auth/users、audit、分享期限/提取码、管理员自降级保护，03 线检索类型过滤和轮询取消为本次用户授权的跨线修复，需维护者评审；没有改变模型结构、resolve_principal 或 C1–C5 函数签名。详见 [逐项结论](../reviews/02-review-resolution.md)。

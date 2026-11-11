@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../../app/AuthProvider";
 import { api } from "../../shared/http";
-import { errorText, formatDate, roleNames } from "../../shared/management";
-import { Icon, Notice, PageHeading } from "../../shared/ui";
+import { errorText, formatDate, roleNames } from "../management/management";
+import { Icon, Notice, PageHeading } from "../management/ui";
 
 export default function AccountPage() {
   const { me, refresh, adoptToken } = useAuth();

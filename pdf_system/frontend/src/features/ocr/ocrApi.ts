@@ -19,12 +19,12 @@ export const ocrCapabilities = () => api<Record<string, unknown>>("/ocr/capabili
 export const hostCapabilities = () => api<Record<string, unknown>>("/ocr-host/capabilities");
 
 export const startOcrJob = (body: JobCreateBody) => api<OcrJob>("/ocr/jobs", { method: "POST", body: JSON.stringify(body) });
-export const getOcrJob = (jobId: string) => api<OcrJob>(`/ocr/jobs/${jobId}`);
+export const getOcrJob = (jobId: string, signal?: AbortSignal) => api<OcrJob>(`/ocr/jobs/${jobId}`, {signal});
 export const cancelOcrJob = (jobId: string) => api<OcrJob>(`/ocr/jobs/${jobId}/cancel`, { method: "POST" });
 export const retryOcrJob = (jobId: string) => api<OcrJob>(`/ocr/jobs/${jobId}/retry`, { method: "POST" });
 export const latestJobOf = (fileId: string) => api<{ job_id: string | null; status: string | null }>(`/ocr-host/files/${fileId}/jobs`);
 
-export const listPages = (jobId: string) => api<OcrPageResult[]>(`/ocr/jobs/${jobId}/pages`);
+export const listPages = (jobId: string, signal?: AbortSignal) => api<OcrPageResult[]>(`/ocr/jobs/${jobId}/pages`, {signal});
 
 export const correctPage = (jobId: string, pageNo: number, expectedRevision: number, blocks: unknown[]) =>
   api<OcrPageResult>(`/ocr/jobs/${jobId}/pages/${pageNo}`, {
@@ -40,4 +40,4 @@ export const exportJob = (jobId: string, format: "txt" | "json" | "csv" | "html"
 };
 
 /** 任务终态后调用，成功页计费、失败页退额度（幂等）。 */
-export const settleJob = (jobId: string) => api<Record<string, unknown>>(`/ocr-host/jobs/${jobId}/settle`, { method: "POST" });
+export const settleJob = (jobId: string, signal?: AbortSignal) => api<Record<string, unknown>>(`/ocr-host/jobs/${jobId}/settle`, { method: "POST", signal });

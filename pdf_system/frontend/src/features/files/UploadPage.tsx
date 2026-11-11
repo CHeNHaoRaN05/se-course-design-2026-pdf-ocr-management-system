@@ -1,14 +1,14 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
-import { Icon, Notice, PageHeading, FileGlyph } from "../../shared/ui";
+import { Icon, Notice, PageHeading, FileGlyph } from "../management/ui";
 import {
   errorText,
   formatBytes,
   normalizeFolder,
   parseTags,
   uniqueFilename,
-} from "../../shared/management";
+} from "../management/management";
 import { allFiles, updateFile, uploadFile, validateUpload } from "./filesApi";
 
 interface UploadRow {

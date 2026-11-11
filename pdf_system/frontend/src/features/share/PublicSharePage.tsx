@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, downloadBlob, publicFile } from "../../shared/http";
-import { errorText, formatBytes } from "../../shared/management";
-import { FileGlyph, Icon, Notice } from "../../shared/ui";
+import { errorText, formatBytes } from "../management/management";
+import { FileGlyph, Icon, Notice } from "../management/ui";
 
 interface Metadata {
   name: string;

@@ -3,15 +3,15 @@ import {
   formatBytes,
   statusNames,
   type QuotaOverview,
-} from "../../shared/management";
+} from "../management/management";
 import {
   EmptyState,
   Icon,
   Loading,
   Notice,
   PageHeading,
-} from "../../shared/ui";
-import { useResource } from "../../shared/useResource";
+} from "../management/ui";
+import { useResource } from "../management/useResource";
 
 export default function StatsPage() {
   const overview = useResource((signal) =>

@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 import type { FileItem } from "../src/shared/types";
-import type { Role, ShareItem } from "../src/shared/management";
+import type { Role, ShareItem } from "../src/features/management/management";
 
 export const userId = "a".repeat(32);
 export const otherUserId = "b".repeat(32);
@@ -25,9 +25,15 @@ const names = [
 ];
 export async function mockApi(
   page: Page,
-  options: { role?: Role; loggedIn?: boolean; extensions?: boolean } = {},
+  options: {
+    role?: Role;
+    loggedIn?: boolean;
+    extensions?: boolean;
+    mounted?: boolean;
+  } = {},
 ) {
   const role = options.role ?? "user";
+  let mounted = options.mounted ?? true;
   const files: FileItem[] = names.map((name, i) => ({
     id: (i + 1).toString(16).padStart(32, "0"),
     name,
@@ -127,7 +133,9 @@ export async function mockApi(
       });
     if (path === "/auth/logout") return empty();
     if (path === "/auth/users")
-      return options.extensions ? json(people) : notFound();
+      return role === "admin"
+        ? json(people)
+        : json({ detail: "需要管理员角色" }, 403);
     const userMatch = path.match(/^\/auth\/users\/([^/]+)\/(role|disabled)$/);
     if (userMatch) {
       const target = people.find((person) => person.id === userMatch[1]);
@@ -147,7 +155,7 @@ export async function mockApi(
         },
       });
     if (path === "/ocr-host/capabilities")
-      return json({ mounted: true, quota_per_month: 500 });
+      return json({ mounted, quota_per_month: 500 });
     if (path === "/ocr-host/usage")
       return json({
         ocr: {
@@ -162,23 +170,97 @@ export async function mockApi(
       });
     if (path === "/ocr/jobs")
       return json(
-        files
-          .slice(0, 10)
-          .map((file, i) => ({
-            file_id: file.id,
-            status: [
-              "succeeded",
-              "succeeded",
-              "running",
-              "partial_success",
-              "none",
-            ][i % 5],
-          })),
+        files.slice(0, 10).map((file, i) => ({
+          file_id: file.id,
+          status: [
+            "succeeded",
+            "succeeded",
+            "running",
+            "partial_success",
+            "none",
+          ][i % 5],
+        })),
       );
     if (path.match(/^\/ocr-host\/files\/.+\/jobs$/))
       return json({ job_id: null, status: null });
-    if (path === "/files/trash")
-      return options.extensions ? json(trash) : notFound();
+    if (path === "/files/trash") return json(trash);
+    if (path === "/files/folders")
+      return json([...new Set(files.map((f) => f.folder))]);
+    if (path === "/files/tags")
+      return json([...new Set(files.flatMap((f) => f.tags))]);
+    if (path === "/files/query") {
+      const keyword = url.searchParams.get("q") ?? "";
+      const state = (f: FileItem) =>
+        ["succeeded", "succeeded", "running", "partial_success", "none"][
+          files.indexOf(f) % 5
+        ];
+      let matching = files.filter(
+        (f) =>
+          f.name.includes(keyword) &&
+          (!url.searchParams.get("media_type") ||
+            f.media_type === url.searchParams.get("media_type")) &&
+          (!url.searchParams.get("folder") ||
+            f.folder.startsWith(url.searchParams.get("folder")!)) &&
+          (!url.searchParams.get("tag") ||
+            f.tags.includes(url.searchParams.get("tag")!)) &&
+          (!mounted ||
+            !url.searchParams.get("status") ||
+            state(f) === url.searchParams.get("status")),
+      );
+      matching.sort(
+        (a, b) =>
+          b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id),
+      );
+      const offset = Number(url.searchParams.get("offset"));
+      const limit = Number(url.searchParams.get("limit") || 20);
+      return json({
+        items: matching
+          .slice(offset, offset + limit)
+          .map((f) => ({
+            ...f,
+            status: mounted ? state(f) : "unknown",
+            generation: mounted ? 1 : null,
+          })),
+        total: matching.length,
+        status_available: mounted,
+      });
+    }
+    if (path === "/files/bulk") {
+      const items = body.file_ids.map((id: string) => {
+        const f = files.find((f) => f.id === id)!;
+        if (failUpdate) {
+          failUpdate = false;
+          return { id, name: f.name, ok: false, message: "测试：分类保存失败" };
+        }
+        if (body.action === "delete") {
+          files.splice(files.indexOf(f), 1);
+          trash.push({ ...f, deleted_at: new Date().toISOString() });
+        }
+        if (body.action === "move") f.folder = body.folder;
+        if (body.action === "tag")
+          f.tags = body.append_tags
+            ? [...new Set([...f.tags, ...body.tags])]
+            : body.tags;
+        return { id, name: f.name, ok: true };
+      });
+      return json({ items });
+    }
+    if (path === "/files/merge" || path.endsWith("/split")) {
+      const created = (
+        path.endsWith("/merge")
+          ? [body.name]
+          : body.groups.map(
+              (_: unknown, i: number) => `${body.name}-${i + 1}.pdf`,
+            )
+      ).map((name: string) => ({
+        ...files[0],
+        name,
+        id: (++sequence).toString(16).padStart(32, "0"),
+        created_at: new Date().toISOString(),
+      }));
+      files.unshift(...created);
+      return json(path.endsWith("/merge") ? created[0] : created, 201);
+    }
     if (path === "/files" && method === "GET") {
       const offset = Number(url.searchParams.get("offset") ?? 0);
       const limit = Number(url.searchParams.get("limit") ?? 20);
@@ -238,6 +320,10 @@ export async function mockApi(
         id: String(++sequence),
         token: "t".repeat(63) + sequence,
         share_url: "",
+        expired: false,
+        expires_at: new Date(
+          Date.now() + body.expires_in_days * 86400000,
+        ).toISOString(),
         visit_count: 0,
         created_at: new Date().toISOString(),
         ...body,
@@ -279,16 +365,14 @@ export async function mockApi(
     if (path === "/search")
       return json({
         backend: "substring",
-        items: files
-          .slice(0, 2)
-          .map((f, i) => ({
-            file_id: f.id,
-            file_name: f.name,
-            page_no: i + 1,
-            job_id: "c".repeat(32),
-            revision: 2,
-            snippet: `软件工程项目的验收报告记录了功能验证结果。${url.searchParams.get("q")} <script>alert(1)</script>`,
-          })),
+        items: files.slice(0, 2).map((f, i) => ({
+          file_id: f.id,
+          file_name: f.name,
+          page_no: i + 1,
+          job_id: "c".repeat(32),
+          revision: 2,
+          snippet: `软件工程项目的验收报告记录了功能验证结果。${url.searchParams.get("q")} <script>alert(1)</script>`,
+        })),
       });
     if (path === "/audit")
       return options.extensions
@@ -312,6 +396,9 @@ export async function mockApi(
     requests,
     pdf,
     user,
+    setMounted: (value: boolean) => {
+      mounted = value;
+    },
     expire: () => {
       expired = true;
     },

@@ -1,8 +1,9 @@
-"""Start the unchanged main API with a disposable SQLite database and OCR disabled.
+"""Start the checked-out API with a disposable SQLite database and OCR disabled.
 
 For local frontend integration checks only. Temporary data is removed on shutdown.
 Requires the Python dependencies from pdf_system/requirements.txt.
 """
+import os
 import secrets
 import sys
 import tempfile
@@ -29,8 +30,10 @@ def main():
         )
         app = create_app(settings)
         Base.metadata.create_all(app.state.engine)
-        print("Disposable frontend smoke API: http://127.0.0.1:8000 (OCR disabled)", flush=True)
-        uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+        @app.get("/__smoke_ready")
+        def ready():
+            return {"marker": os.environ.get("SE_SMOKE_MARKER", "manual")}
+        uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SE_SMOKE_PORT", "8000")), log_level="warning")
 
 
 if __name__ == "__main__":

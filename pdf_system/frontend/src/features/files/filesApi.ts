@@ -1,3 +1,5 @@
+import { normalizeFilename } from "../management/management";
+import { readAllPages } from "../management/pagination";
 import { api, apiBlob } from "../../shared/http";
 import type { FileItem } from "../../shared/types";
 
@@ -6,7 +8,7 @@ export const listFiles = (params: Record<string, string> = {}) =>
 
 export const uploadFile = (file: File) => {
   const body = new FormData();
-  body.set("file", file);
+  body.set("file", file, normalizeFilename(file.name));
   return api<FileItem>("/files", { method: "POST", body });
 };
 
@@ -30,18 +32,46 @@ export const pageSizes = (fileId: string) =>
     { page_no: number; width_pt: number; height_pt: number; rotation: number }[]
   >(`/files/${fileId}/pages`);
 
-/** 当前列表接口没有 total，逐页读取后统一筛选/排序，避免只排序当前页。 */
-export async function allFiles(signal?: AbortSignal): Promise<FileItem[]> {
-  const result: FileItem[] = [];
-  for (let offset = 0; ; offset += 100) {
-    const page = await api<FileItem[]>(`/files?limit=100&offset=${offset}`, {
-      signal,
-    });
-    result.push(...page);
-    if (page.length < 100)
-      return [...new Map(result.map((file) => [file.id, file])).values()];
-  }
+/** 下拉选择等需要完整清单时使用有界分页；文件库本身使用服务端分页。 */
+export const allFiles = (signal?: AbortSignal): Promise<FileItem[]> =>
+  readAllPages(
+    (offset) =>
+      api<FileItem[]>(`/files?limit=100&offset=${offset}`, { signal }),
+    signal,
+  );
+export interface FileQuery {
+  items: (FileItem & { status: string; generation: number | null })[];
+  total: number;
+  status_available: boolean;
 }
+export const queryFiles = (
+  params: Record<string, string>,
+  signal?: AbortSignal,
+) => api<FileQuery>(`/files/query?${new URLSearchParams(params)}`, { signal });
+export const bulkFiles = (body: {
+  file_ids: string[];
+  action: "delete" | "move" | "tag";
+  folder?: string;
+  tags?: string[];
+  append_tags?: boolean;
+}) =>
+  api<{ items: { id: string; name: string; ok: boolean; message?: string }[] }>(
+    "/files/bulk",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+export const mergeFiles = (file_ids: string[], name: string) =>
+  api<FileItem>("/files/merge", {
+    method: "POST",
+    body: JSON.stringify({ file_ids, name }),
+  });
+export const splitFile = (
+  id: string,
+  body: { name: string; groups?: number[][]; every?: number },
+) =>
+  api<FileItem[]>(`/files/${id}/split`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 export const restoreFile = (id: string) =>
   api<FileItem>(`/files/${id}/restore`, { method: "POST" });
 export const purgeFile = (id: string) =>
@@ -51,7 +81,10 @@ export async function validateUpload(file: File): Promise<void> {
   if (!file.size) throw new Error("文件为空，请重新选择。");
   if (file.size > 20 * 1024 * 1024)
     throw new Error("文件超过 20 MiB，请压缩或拆分后上传。");
-  const extension = file.name.split(".").pop()?.toLowerCase();
+  const extension = normalizeFilename(file.name)
+    .split(".")
+    .pop()
+    ?.toLowerCase();
   const types: Record<string, string> = {
     pdf: "application/pdf",
     png: "image/png",

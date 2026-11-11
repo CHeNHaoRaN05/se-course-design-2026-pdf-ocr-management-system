@@ -53,3 +53,40 @@ jobs:
           npm ci
           npm test
           npm run build
+
+  frontend-integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: pdf_system/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install frontend and real API dependencies
+        run: |
+          npm ci
+          python -m pip install -r ../requirements.txt
+          npx playwright install --with-deps chromium-headless-shell
+      - name: Unit tests (shell-independent file discovery)
+        run: npm test
+      - name: Browser contract and failure regressions
+        run: npm run test:e2e
+      - name: Real FastAPI + SQLite browser workflow (no route mocking)
+        run: npm run test:live
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-evidence-${{ matrix.os }}
+          path: |
+            pdf_system/frontend/test-results/
+            pdf_system/frontend/playwright-report/

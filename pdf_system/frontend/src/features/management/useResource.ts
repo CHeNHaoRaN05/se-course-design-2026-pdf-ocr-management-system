@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "./http";
+import { ApiError } from "../../shared/http";
 import { errorText } from "./management";
 
 export function useResource<T>(

@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from ...core.database import get_session
 from ...core.errors import bad_request
 from ...core.media import MediaError, safe_path
-from ...core.principal import Principal, current_user, share_access
-from ...models import ShareLink
+from ...core.principal import Principal, current_user, share_access, require_editor
+from ...models import ShareLink, now
 from . import service
 from .schemas import ShareCreate, ShareOut, ShareStats
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/share", tags=["01 分享与协作·甲"])
 def _out(link: ShareLink, base_url: str) -> ShareOut:
     return ShareOut(id=link.id, file_id=link.file_id, token=link.token,
                     share_url=f"{base_url}api/v1/share/token/{link.token}",
-                    expires_at=link.expires_at, access_code=link.access_code,
+                    expires_at=link.expires_at, expired=bool(link.expires_at and link.expires_at <= now()), access_code=link.access_code,
                     allow_download=link.allow_download, visit_count=link.visit_count,
                     created_at=link.created_at)
 
@@ -32,9 +32,9 @@ def _out(link: ShareLink, base_url: str) -> ShareOut:
 @router.post("", status_code=201, response_model=ShareOut)
 @router.post("/", status_code=201, response_model=ShareOut, include_in_schema=False)
 def create(body: ShareCreate, request: Request, session: Session = Depends(get_session),
-          user: Principal = Depends(current_user)):
+          user: Principal = Depends(require_editor)):
     link = service.create_share(session, user, file_id=body.file_id, expires_at=body.expires_at,
-                                access_code=body.access_code, allow_download=body.allow_download)
+                                access_code=body.access_code, allow_download=body.allow_download, expires_in_days=body.expires_in_days)
     session.commit()
     return _out(link, str(request.base_url))
 
@@ -54,7 +54,7 @@ def detail(share_id: str, request: Request, session: Session = Depends(get_sessi
 
 @router.delete("/{share_id}", status_code=204)
 def cancel(share_id: str, session: Session = Depends(get_session),
-           user: Principal = Depends(current_user)):
+           user: Principal = Depends(require_editor)):
     service.cancel_share(session, user, share_id)
     session.commit()
 

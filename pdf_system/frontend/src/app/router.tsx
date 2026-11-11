@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Layout from "./Layout";
 import { useAuth } from "./AuthProvider";
 import { tokenStore } from "../shared/http";
-import { EmptyState, Loading, Notice } from "../shared/ui";
+import { EmptyState, Loading, Notice } from "../features/management/ui";
 import LoginPage from "../features/auth/LoginPage";
 const FilesPage = lazy(() => import("../features/files/FilesPage"));
 const UploadPage = lazy(() => import("../features/files/UploadPage"));
@@ -67,7 +67,14 @@ export default function AppRoutes() {
           <Route path="/files" element={<FilesPage />} />
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/trash" element={<TrashPage />} />
-          <Route path="/files/:fileId" element={<ReaderPage />} />
+          <Route
+            path="/files/:fileId"
+            element={
+              <div className="reader-area">
+                <ReaderPage />
+              </div>
+            }
+          />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/shares" element={<SharesPage />} />

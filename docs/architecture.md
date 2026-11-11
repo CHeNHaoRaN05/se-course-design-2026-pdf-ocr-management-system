@@ -416,3 +416,8 @@ curl -s "http://127.0.0.1:8000/api/v1/search?q=PDF" -H "Authorization: Bearer $T
 
 > `ocr_mounted: true` 只表示模块导入成功，**不代表 paddle 可用**。
 > 真正跑识别必须有 worker 进程（10.3）；没起 worker 时任务会一直 `queued`。
+
+
+## 2026-11-11 审查修复增量（本地待评审）
+
+新增7个路由：files/query、files/trash、files/bulk、files/merge、files/{file_id}/split、auth/users、audit。详见 api-contract.yaml 增量和 reviews/02-api-additions.md；原上文W7待补条目应以本节状态为准。旧数组files接口保留，管理前端改用query获取total与稳定排序。用户/审计接口后端require_admin，分享有效期服务端计时。未合并到GitHub main，评审与部署另行进行。

@@ -84,7 +84,7 @@ test("rename and delete are confirmed; trash history restores using real endpoin
   await page.getByRole("button", { name: "确认", exact: true }).click();
   await page.getByRole("button", { name: "完成", exact: true }).click();
   await page.getByRole("link", { name: "回收站", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("本浏览器");
+  await expect(page.getByRole("heading", { name: /已删除文档/ })).toBeVisible();
   await expect(page.locator("tbody")).toContainText("重命名后的资料");
   await page.getByRole("button", { name: "还原", exact: true }).click();
   await page.getByRole("button", { name: "确认", exact: true }).click();
@@ -171,7 +171,8 @@ test("share creation, code validation, metadata-only access and revoke", async (
   const body = state.requests.find(
     (r) => r.path === "/share" && r.method === "POST",
   )?.body as any;
-  expect(body.expires_at).not.toMatch(/Z$/);
+  expect(body.expires_in_days).toBe(7);
+  expect(body.expires_at).toBeUndefined();
   expect(body.allow_download).toBe(false);
   await page.getByRole("link", { name: "访问分享页" }).click();
   await page.getByRole("button", { name: "访问文档", exact: true }).click();
@@ -236,12 +237,14 @@ test("global search highlights escaped content and keeps per-account history", a
   await expect(page.getByText("暂无检索历史。")).toBeVisible();
 });
 
-test("admin can use known ID when user-list API is unavailable; audit fallback is explicit", async ({
+test("admin can update known users; audit errors stay visible", async ({
   page,
 }) => {
   const state = await mockApi(page, { role: "admin" });
   await page.goto("/admin/users");
-  await expect(page.getByRole("status")).toContainText("尚未开放用户列表");
+  await expect(
+    page.getByRole("heading", { name: "用户列表", exact: true }),
+  ).toBeVisible();
   await page.getByLabel("用户 ID", { exact: true }).fill(otherUserId);
   await page.getByLabel("目标角色").selectOption("viewer");
   await page.getByRole("button", { name: "检查并确认修改" }).click();
@@ -254,9 +257,7 @@ test("admin can use known ID when user-list API is unavailable; audit fallback i
     ),
   ).toBe(true);
   await page.goto("/admin/audit");
-  await expect(
-    page.getByRole("heading", { name: "等待接入审计数据" }),
-  ).toBeVisible();
+  await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByRole("button", { name: "导出当前页" })).toBeDisabled();
 });
 
@@ -378,7 +379,7 @@ test("file list failure is distinct from an empty library", async ({
   page,
 }) => {
   await mockApi(page);
-  await page.route("**/api/v1/files?**", (route) =>
+  await page.route("**/api/v1/files/query?**", (route) =>
     route.fulfill({
       status: 503,
       contentType: "application/json",
@@ -392,4 +393,162 @@ test("file list failure is distinct from an empty library", async ({
   await expect(
     page.getByRole("heading", { name: "你的文档空间，等待第一份资料" }),
   ).toHaveCount(0);
+});
+
+test("offline logout always clears local credentials", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/files");
+  await expect(page.locator("tbody tr")).toHaveCount(12);
+  await page.route("**/api/v1/auth/logout", (route) =>
+    route.abort("internetdisconnected"),
+  );
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await expect(page).toHaveURL(/login/);
+  expect(
+    await page.evaluate(() => localStorage.getItem("pdf_system_token")),
+  ).toBeNull();
+  await expect(page.getByText(/未确认服务端会话吊销/)).toBeVisible();
+});
+
+test("status backend unavailable clears stale filter without hiding files", async ({
+  page,
+}) => {
+  const state = await mockApi(page);
+  await page.goto("/files");
+  await expect(page.locator("tbody tr")).toHaveCount(12);
+  await page.getByLabel("识别状态", { exact: true }).selectOption("succeeded");
+  await expect(page.locator("tbody tr")).toHaveCount(6);
+  state.setMounted(false);
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.getByLabel("识别状态", { exact: true })).toBeDisabled();
+  await expect(page.locator("tbody tr")).toHaveCount(12);
+  await expect(page.getByRole("status")).toContainText("已取消状态筛选");
+});
+
+test("permission errors never fall back to locally cached trash", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route("**/api/v1/files/trash?**", (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "无权访问" }),
+    }),
+  );
+  await page.goto("/trash");
+  await expect(page.getByRole("alert")).toContainText("无权访问");
+  await expect(page.getByText(/当前显示本浏览器/)).toHaveCount(0);
+});
+
+test("invisible access code cannot create a share and search sends media_type", async ({
+  page,
+}) => {
+  const state = await mockApi(page);
+  await page.goto(`/shares?file=${state.files[0].id}`);
+  await page.getByLabel(/提取码/).fill("\u200b");
+  await page.getByRole("button", { name: "生成分享链接" }).click();
+  await expect(page.getByRole("alert")).toContainText("字母和数字");
+  expect(state.shares).toHaveLength(0);
+  await page.goto("/search");
+  await page.getByLabel("检索文件类型").selectOption("application/pdf");
+  await page.getByLabel("关键词", { exact: true }).fill("验收");
+  const request = page.waitForRequest((r) =>
+    r.url().includes("/api/v1/search?"),
+  );
+  await page.getByRole("button", { name: "检索", exact: true }).click();
+  expect(new URL((await request).url()).searchParams.get("media_type")).toBe(
+    "application/pdf",
+  );
+});
+
+test("OCR failures stop after three attempts and reader retains base control styles", async ({
+  page,
+}) => {
+  const state = await mockApi(page);
+  const id = state.files[0].id;
+  const job = "j".repeat(32);
+  let reads = 0;
+  await page.route(`**/api/v1/ocr-host/files/${id}/jobs`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ job_id: job, status: "running" }),
+    }),
+  );
+  await page.route(`**/api/v1/ocr/jobs/${job}`, (route) => {
+    reads++;
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "worker unavailable" }),
+    });
+  });
+  await page.route(`**/api/v1/ocr/jobs/${job}/pages`, (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
+  await page.goto(`/files/${id}`);
+  await expect(page.getByText(/已停止自动重试/)).toBeVisible({
+    timeout: 10000,
+  });
+  expect(reads).toBe(3);
+  await expect(
+    page.getByPlaceholder("留空为全部，例如 1-3,5").first(),
+  ).toBeDisabled();
+  const styles = await page
+    .locator(".reader-area button")
+    .first()
+    .evaluate((el) => ({
+      border: getComputedStyle(el).borderTopWidth,
+      padding: getComputedStyle(el).paddingTop,
+    }));
+  expect(styles).toEqual({ border: "1px", padding: "6px" });
+});
+
+test("unmounting OCR page aborts its in-flight requests and does not settle", async ({
+  page,
+}) => {
+  const state = await mockApi(page);
+  const id = state.files[0].id;
+  const job = "k".repeat(32);
+  let settlements = 0;
+  await page.route(`**/api/v1/ocr-host/files/${id}/jobs`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ job_id: job, status: "running" }),
+    }),
+  );
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/v1/ocr/jobs/${job}`, async (route) => {
+    await gate;
+    await route
+      .fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: job,
+          status: "succeeded",
+          progress: { percent: 100 },
+          options: {},
+          pages: [],
+        }),
+      })
+      .catch(() => {});
+  });
+  await page.route(`**/api/v1/ocr/jobs/${job}/pages`, (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
+  await page.route(`**/api/v1/ocr-host/jobs/${job}/settle`, (route) => {
+    settlements++;
+    return route.fulfill({ contentType: "application/json", body: "{}" });
+  });
+  const started = page.waitForRequest((r) =>
+    r.url().endsWith(`/ocr/jobs/${job}`),
+  );
+  await page.goto(`/files/${id}`);
+  await started;
+  await page.getByRole("link", { name: "文件库", exact: true }).click();
+  await expect(page.locator(".reader-area")).toHaveCount(0);
+  release();
+  await expect(page.locator("tbody tr")).toHaveCount(12);
+  expect(settlements).toBe(0);
 });

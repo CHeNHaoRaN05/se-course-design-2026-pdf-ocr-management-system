@@ -1,12 +1,32 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
-import { Icon, Loading, Notice } from "../../shared/ui";
-import { errorText } from "../../shared/management";
+import { Icon, Loading, Notice } from "../management/ui";
+import { errorText } from "../management/management";
 
 export default function LoginPage() {
   const { token, login, register, ready } = useAuth();
   const location = useLocation();
+  const [logoutNotice, setLogoutNotice] = useState("");
+  useEffect(() => {
+    const read = () => {
+      try {
+        setLogoutNotice(sessionStorage.getItem("pdf_logout_notice") ?? "");
+      } catch {
+        /* no storage */
+      }
+    };
+    read();
+    const timer = window.setInterval(read, 500);
+    return () => {
+      window.clearInterval(timer);
+      try {
+        sessionStorage.removeItem("pdf_logout_notice");
+      } catch {
+        /* no storage */
+      }
+    };
+  }, []);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -131,6 +151,7 @@ export default function LoginPage() {
               注册
             </button>
           </div>
+          {logoutNotice && <Notice tone="warning">{logoutNotice}</Notice>}
           {error && <Notice tone="error">{error}</Notice>}
           {!ready ? (
             <Loading />
