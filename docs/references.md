@@ -16,7 +16,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`architecture.md`](architecture.md) | 接口总表与调用关系（48 个接口） |
+| [`architecture.md`](architecture.md) | 接口总表与调用关系（由实际路由生成契约） |
 | [`api-contract.yaml`](api-contract.yaml) | API 契约（OpenAPI 骨架） |
 | [`database-design.md`](database-design.md) / [`er-diagram.mmd`](er-diagram.mmd) | 数据库设计与 E-R 图 |
 | [`features.md`](features.md) | 需求分析与功能点编号总表 |
@@ -36,3 +36,6 @@
 ## 图表与 UML
 
 需求文档的 PlantUML 源码约定提交到 `docs/uml/`（待建），E-R 图已先以 Mermaid 形式落在 [`er-diagram.mmd`](er-diagram.mmd)。
+
+- `api-contract.yaml`由`backend/scripts/export_contract.py`生成，当前完整装配为59条路径、68个HTTP操作；CI校验其与运行时一致。
+- 复测验收记录：`reviews/02-retest-resolution.md`（区分历史证据、当前本地验证与外部评审）。

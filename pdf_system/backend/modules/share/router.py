@@ -3,7 +3,7 @@
 owner 侧（需 JWT）：创建 / 列表 / 详情 / 取消 / 统计。
 被分享者侧（旁路 token，无需 JWT）：GET /share/token/{token} 只读访问。
 """
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,8 @@ from ...core.errors import bad_request
 from ...core.media import MediaError, safe_path
 from ...core.principal import Principal, current_user, share_access, require_editor
 from ...models import ShareLink, now
-from . import service
+from . import service, throttle
+from ...core.audit import audit
 from .schemas import ShareCreate, ShareOut, ShareStats
 
 router = APIRouter(prefix="/share", tags=["01 分享与协作·甲"])
@@ -72,11 +73,21 @@ def stats(share_id: str, session: Session = Depends(get_session),
 
 
 @router.get("/token/{token}")
-def view_token(token: str, request: Request, code: str | None = Query(default=None),
+def view_token(token: str, request: Request, code: str | None = Query(default=None, max_length=32),
                session: Session = Depends(get_session)):
     """FR-SHR：被分享者凭 token 只读访问；错误/过期/提取码不符统一 404。"""
-    link = share_access(token, session, code)
-    record = service.shared_file(session, link)
+    client = request.client.host if request.client else "unknown"
+    if not throttle.allow(client):
+        raise HTTPException(429, "分享访问过于频繁，请稍后重试", headers={"Retry-After": "60"})
+    try:
+        link = share_access(token, session, code)
+        record = service.shared_file(session, link)
+    except HTTPException:
+        session.rollback()
+        audit(session, "guest", "share_denied", "0" * 32)
+        session.commit()
+        raise
+    audit(session, "guest", "share_access", record.id)
     session.commit()  # 递增访问计数
     if link.allow_download:
         try:

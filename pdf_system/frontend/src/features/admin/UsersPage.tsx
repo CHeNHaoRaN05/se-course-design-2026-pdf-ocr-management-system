@@ -7,22 +7,30 @@ import {
   roleNames,
   type Role,
   type UserInfo,
+  type PageResult,
 } from "../management/management";
-import { Icon, Loading, Modal, Notice, PageHeading } from "../management/ui";
-import { readAllPages } from "../management/pagination";
+import {
+  Icon,
+  Loading,
+  Modal,
+  Notice,
+  PageHeading,
+  Pagination,
+} from "../management/ui";
 import { useResource } from "../management/useResource";
 
 export default function UsersPage() {
   const { me } = useAuth();
-  const [known, setKnown] = useState<UserInfo[]>([]);
-  const users = useResource(async (signal) => {
-    const items = await readAllPages(
-      (offset) =>
-        api<UserInfo[]>(`/auth/users?limit=100&offset=${offset}`, { signal }),
-      signal,
-    );
-    return { items };
-  });
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const users = useResource(
+    (signal) =>
+      api<PageResult<UserInfo>>(
+        `/auth/users?envelope=true&limit=20&offset=${(page - 1) * 20}&q=${encodeURIComponent(q)}`,
+        { signal },
+      ),
+    [page, q],
+  );
   const [id, setId] = useState("");
   const [operation, setOperation] = useState("role");
   const [role, setRole] = useState<Role>("user");
@@ -36,16 +44,7 @@ export default function UsersPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [q, setQ] = useState("");
-  const records = [
-    ...new Map(
-      [...(users.data?.items ?? []), ...known].map((user) => [user.id, user]),
-    ).values(),
-  ].filter((user) =>
-    `${user.email} ${user.display_name} ${user.id}`
-      .toLowerCase()
-      .includes(q.toLowerCase()),
-  );
+  const records = users.data?.items ?? [];
   function prepare(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -77,7 +76,6 @@ export default function UsersPage() {
           ),
         },
       );
-      setKnown((old) => [...old.filter((item) => item.id !== user.id), user]);
       setPending(null);
       setMessage(`已更新 ${user.display_name || user.email} 的账户设置。`);
       users.reload();
@@ -111,7 +109,11 @@ export default function UsersPage() {
             aria-label="搜索用户"
             value={q}
             placeholder="搜索名称、邮箱或 ID…"
-            onChange={(e) => setQ(e.target.value)}
+            maxLength={190}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setPage(1);
+            }}
           />
         </div>
         {users.loading ? (
@@ -180,6 +182,12 @@ export default function UsersPage() {
             </table>
           </div>
         )}
+        <Pagination
+          page={page}
+          total={users.data?.total ?? 0}
+          pageSize={20}
+          onChange={setPage}
+        />
       </section>
       <div className="two-column section-gap">
         <section className="panel">

@@ -1,3 +1,5 @@
+> 接口统计提示：下文固定数量是历史基线；当前完整装配的59条路径/68个HTTP操作以自动生成的api-contract.yaml为准。
+
 # 架构概览：接口总表与调用关系
 
 > 项目：基于本地 OCR 的 PDF 文件显示与管理系统
@@ -421,3 +423,5 @@ curl -s "http://127.0.0.1:8000/api/v1/search?q=PDF" -H "Authorization: Bearer $T
 ## 2026-11-11 审查修复增量（本地待评审）
 
 新增7个路由：files/query、files/trash、files/bulk、files/merge、files/{file_id}/split、auth/users、audit。详见 api-contract.yaml 增量和 reviews/02-api-additions.md；原上文W7待补条目应以本节状态为准。旧数组files接口保留，管理前端改用query获取total与稳定排序。用户/审计接口后端require_admin，分享有效期服务端计时。未合并到GitHub main，评审与部署另行进行。
+
+2026-11-13：trash/users/audit支持envelope=true分页对象；bulk返回200/207/409并带逐项结果；详细说明见reviews/02-retest-contract.md。613be22已推送，旧“未合并”与“未推送”应区分。

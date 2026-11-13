@@ -1,9 +1,11 @@
+import { filesChanged } from "../management/fileEvents";
 import { useState, type FormEvent } from "react";
 import type { FileItem } from "../../shared/types";
 import { Icon, Modal, Notice } from "../management/ui";
 import {
   errorText,
   normalizeFolder,
+  normalizeFilename,
   parseTags,
 } from "../management/management";
 import { bulkFiles, mergeFiles, splitFile, updateFile } from "./filesApi";
@@ -101,9 +103,13 @@ export default function FileActionDialog({
       } else if (action === "rename") {
         if (!value.trim() || value.trim().length > 255 || /[\\/]/.test(value))
           throw new Error("请输入合法文件名。");
-        const updated = await updateFile(files[0].id, { name: value.trim() });
+        const updated = await updateFile(files[0].id, {
+          name: normalizeFilename(value),
+        });
         record({ name: updated.name, ok: true });
       } else {
+        if (action === "move" && !value.trim())
+          throw new Error("请填写目标分类，根目录请填写 /。");
         const folder = action === "move" ? normalizeFolder(value) : undefined;
         const tags = action === "tag" ? parseTags(value) : undefined;
         const result = await bulkFiles({
@@ -122,7 +128,7 @@ export default function FileActionDialog({
       setBusy(false);
       if (changed) {
         onChanged();
-        window.dispatchEvent(new Event("pdf-system:files-changed"));
+        filesChanged();
       }
     }
   }

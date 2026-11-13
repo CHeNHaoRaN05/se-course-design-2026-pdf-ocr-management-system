@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
+import { throwIfAborted, isCancellation } from "../../shared/requests";
 import { ApiError, api, downloadBlob } from "../../shared/http";
 import { TERMINAL, type OcrBlock, type OcrJob, type OcrPageResult } from "../../shared/types";
 import { cancelOcrJob, correctPage, exportJob, getOcrJob, listPages, settleJob, startOcrJob } from "./ocrApi";
@@ -33,6 +34,8 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
   const [coordinates, setCoordinates] = useState(true);
   const [fileName, setFileName] = useState("ocr");
   const settled = useRef(new Set<string>());
+  const manual = useRef(new AbortController());
+  useEffect(()=>{manual.current=new AbortController();return()=>manual.current.abort();},[fileId,jobId]);
   const identity = useRef(jobId);
   identity.current = jobId;
   const editor = !!me && me.role !== "viewer";
@@ -59,12 +62,13 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
       try {
         const [nextJob, nextPages] = await Promise.all([getOcrJob(jobId!, controller.signal), listPages(jobId!, controller.signal)]);
         if (stopped) return;
-        failures = 0; setError("");
+        setError("");
         next = nextJob; setJob(nextJob); setPages(nextPages);
-        if (editor && TERMINAL.has(nextJob.status) && !settled.current.has(jobId!)) {
+        if (TERMINAL.has(nextJob.status) && !settled.current.has(jobId!)) {
           await settleJob(jobId!, controller.signal);
           if (!stopped) settled.current.add(jobId!);
         }
+        failures = 0;
       } catch (e) {
         if (stopped) return;
         failures++;
@@ -72,7 +76,7 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
         setError(`${e instanceof Error ? e.message : "查询任务失败"}${failures >= 3 || fatal ? "；已停止自动重试，请手动刷新状态。" : ""}`);
         if (failures >= 3 || fatal) return;
       }
-      if (!stopped && (!next || !TERMINAL.has(next.status))) timer = window.setTimeout(tick, 1500);
+      if (!stopped && (!next || !TERMINAL.has(next.status) || !settled.current.has(jobId!))) timer = window.setTimeout(tick, 1500);
     }
     void tick();
     return () => { stopped = true; controller.abort(); window.clearTimeout(timer); };
@@ -82,22 +86,23 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
     onBlocks(page?.result?.blocks ?? []); onActive(undefined);
   }, [page, onBlocks, onActive]);
 
-  async function action(operation: () => Promise<unknown>) {
+  async function action(operation: (signal:AbortSignal) => Promise<unknown>) {
     const captured = jobId;
+    const signal=manual.current.signal;
     setBusy(true); setError("");
-    try { await operation(); }
+    try { throwIfAborted(signal); await operation(signal); }
     catch (e) {
-      if (identity.current === captured) setError(e instanceof Error ? e.message : "操作失败");
-    } finally { if (identity.current === captured) setBusy(false); }
+      if (!signal.aborted && !isCancellation(e) && identity.current === captured) setError(e instanceof Error ? e.message : "操作失败");
+    } finally { if (!signal.aborted && identity.current === captured) setBusy(false); }
   }
   async function save() {
     if (!page?.result || !jobId) return;
     const captured = jobId;
     const edit = draft[page.page_no] ?? { revision: page.revision, blocks: page.result.blocks };
-    await action(async () => {
+    await action(async (signal) => {
       try {
-        const updated = await correctPage(captured, page.page_no, edit.revision, edit.blocks);
-        if (identity.current !== captured) return;
+        const updated = await correctPage(captured, page.page_no, edit.revision, edit.blocks, signal);
+        if (signal.aborted || identity.current !== captured) return;
         setPages((previous) => previous.map((item) => item.page_no === page.page_no ? updated : item));
         setDraft((previous) => { const next = { ...previous }; delete next[page.page_no]; return next; });
       } catch (e) {
@@ -110,15 +115,15 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
   }
   async function create() {
     const captured = jobId;
-    await action(async () => {
-      const created = await startOcrJob({ file_id: fileId, pages: parsePageRange(range), tables });
-      if (identity.current === captured) onJobChange(created.id);
+    await action(async (signal) => {
+      const created = await startOcrJob({ file_id: fileId, pages: parsePageRange(range), tables }, signal);
+      if (!signal.aborted && identity.current === captured) onJobChange(created.id);
     });
   }
   async function exportResult() {
     if (!jobId) return;
-    await action(async () => {
-      const blob = await exportJob(jobId, format, partial, parsePageRange(exportRange), coordinates);
+    await action(async (signal) => {
+      const blob = await exportJob(jobId, format, partial, parsePageRange(exportRange), coordinates, signal);
       const stem = fileName.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]/g, "_").slice(0, 100) || "ocr";
       downloadBlob(blob, `${stem}-${new Date().toISOString().replace(/[:.]/g, "-")}.${format}`);
     });
@@ -135,19 +140,19 @@ export default function OcrPanel({ jobId, onJobChange, onBlocks, onActive }: Pro
       <div className="row" style={{ flexWrap: "wrap", marginTop: 12 }}>
         <strong>任务 {job?.status ?? "加载中…"}</strong>
         <span className="muted">进度 {job?.progress.percent ?? 0}% · 尝试 {job?.attempts ?? 0} 次</span>
-        {editor && active && <button disabled={busy} onClick={() => void action(async () => {
-          await cancelOcrJob(jobId); setRefresh((value) => value + 1);
+        {editor && active && <button disabled={busy} onClick={() => void action(async (signal) => {
+          await cancelOcrJob(jobId,signal); setRefresh((value) => value + 1);
         })}>取消任务</button>}
         {editor && job && ["failed", "partial_success"].includes(job.status) && <button disabled={busy}
-          onClick={() => void action(async () => {
+          onClick={() => void action(async (signal) => {
             // C3 closes quota once per job ID. A fresh job gives the retry its own
             // reservation/settlement; successful pages keep their existing index.
             const captured = jobId;
-            await settleJob(captured);
+            await settleJob(captured,signal);
             const failed = job.pages.filter((item) => item.status !== "succeeded").map((item) => item.page_no);
             if (!failed.length) throw new Error("没有需要重试的失败页");
-            const created = await startOcrJob({ ...job.options, file_id: job.file_id, pages: failed });
-            if (identity.current === captured) onJobChange(created.id);
+            const created = await startOcrJob({ ...job.options, file_id: job.file_id, pages: failed },signal);
+            if (!signal.aborted && identity.current === captured) onJobChange(created.id);
           })}>重试失败页</button>}
         <button disabled={busy} onClick={() => { setError(""); setRefresh((value) => value + 1); }}>刷新状态</button>
       </div>

@@ -1,15 +1,20 @@
-# 管理前端接口接入状态（2026-11-11）
+# 管理接口接入状态（2026-11-13）
 
-此前列为“未实现”的 files/trash、auth/users、audit 已在本地修复分支实现，页面不再把404/405转换成“未实现”或展示本地缓存。需要同批部署前后端。
+前次613be22已经推送。本轮增量仍待维护者评审，前后端需同批更新。
 
-- `GET /files/query`：服务端分页、total、类型/日期/状态筛选、稳定排序、状态可用性与最新代次。
-- `GET /files/trash`：真实 deleted_at 的回收站清单，权限过滤。
-- `POST /files/bulk`：归属预检、逐项事务和明确的部分成功结果。
-- `POST /files/merge`、`POST /files/{id}/split`：服务端PDFium生成、内容/加密/页数/像素/输出大小校验，失败清理新文件。
-- `GET /auth/users`、`GET /audit`：后端require_admin保护。
-- `POST /share`：相对有效期由服务端计算，提取码只允许ASCII字母数字。
-- `GET /search`：新增media_type精确过滤。
+## 已实现
 
-准确参数与事务边界见 [增量契约](../../../docs/reviews/02-api-additions.md)（仓库根 docs/reviews）；运行时 `/openapi.json` 为完整结构。
+- files/query：分页total、类型/日期/状态筛选、有效排序方式与来源版本。
+- files/trash、auth/users、audit：envelope=true 返回 items/total/limit/offset，旧数组客户端兼容，页面只取当前页。
+- files/bulk：归属预检与文件状态分离，200全部成功/207混合/409全部失败，均带逐项结果。
+- files/merge、files/{id}/split：服务端校验与生成，version取源最大值+1，replaced_from与审计记录来源；不覆盖原件。
+- share：相对有效期，拒绝无时区绝对时间；可见提取码、原子访问计数、单进程限速与访问审计。
+- search：类型过滤、关键词长度与空白建议校验。
 
-仍未实现的独立需求：存储配额及写接口、每日趋势/平均耗时、独立目录CRUD/空节点/标签颜色、回收站30天清理、审计保留、禁止下载模式的安全文档渲染、文件历史版本管理、阅读器高级功能、生产MySQL和Paddle模型验收。
+准确结构见 [生成契约](../../docs/api-contract.yaml)、[复测增量](../../docs/reviews/02-retest-contract.md)、[逐项结论](../../docs/reviews/02-retest-resolution.md)。
+
+## 仍需专项完成
+
+完整版本历史/回滚、C3无人访问结算/跨月账务/同ID重试、阅读器高级功能、存储配额及写接口、趋势/平均耗时、独立分类树/空目录/标签颜色、30天回收站和日志保留策略、禁止下载安全渲染、生产MySQL及Paddle模型验收。
+
+分页为实时offset分页，不是历史快照。限速器为单进程实现，多worker需共享限速基础设施。客户端取消不回滚服务端已提交的任务。

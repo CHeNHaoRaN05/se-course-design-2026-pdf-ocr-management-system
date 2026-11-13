@@ -17,8 +17,8 @@ export async function readAllPages<T extends { id: string }>(
         result.push(item);
         added++;
       }
-    if (items.length && !added)
-      throw new Error("服务端重复返回同一页，已停止加载，请重试。");
+    if (added !== items.length)
+      throw new Error("服务端返回重复记录，已停止加载，请刷新后重试。");
     if (items.length < 100) return result;
   }
   throw new Error("数据量超过加载上限，请缩小范围。");

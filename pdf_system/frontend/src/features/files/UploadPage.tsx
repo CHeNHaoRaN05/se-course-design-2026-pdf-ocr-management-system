@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { throwIfAborted, isCancellation } from "../../shared/requests";
+import { filesChanged } from "../management/fileEvents";
+import { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
 import { Icon, Notice, PageHeading, FileGlyph } from "../management/ui";
@@ -22,6 +24,11 @@ export default function UploadPage() {
   const { me } = useAuth();
   const input = useRef<HTMLInputElement>(null);
   const sequence = useRef(0);
+  const controller = useRef(new AbortController());
+  useEffect(() => {
+    controller.current = new AbortController();
+    return () => controller.current.abort();
+  }, []);
   const [rows, setRows] = useState<UploadRow[]>([]);
   const [folder, setFolder] = useState("/");
   const [tags, setTags] = useState("");
@@ -63,8 +70,11 @@ export default function UploadPage() {
     }
     setBusy(true);
     try {
-      const names = new Set((await allFiles()).map((file) => file.name));
+      const names = new Set(
+        (await allFiles(controller.current.signal)).map((file) => file.name),
+      );
       for (const row of pending) {
+        throwIfAborted(controller.current.signal);
         patch(row.id, { state: "uploading", message: "正在校验并上传…" });
         try {
           let uploadedId = row.fileId;
@@ -73,25 +83,31 @@ export default function UploadPage() {
             const name = uniqueFilename(row.file.name, names);
             const upload = await uploadFile(
               new File([row.file], name, { type: row.file.type }),
+              controller.current.signal,
             );
             uploadedId = upload.id;
             names.add(name);
             patch(row.id, { fileId: uploadedId });
           }
           if (row.fileId || path !== "/" || labels.length)
-            await updateFile(uploadedId, { folder: path, tags: labels });
+            await updateFile(
+              uploadedId,
+              { folder: path, tags: labels },
+              controller.current.signal,
+            );
           patch(row.id, {
             state: "success",
             message: "已加入文件库",
             fileId: uploadedId,
           });
         } catch (e) {
+          if (isCancellation(e)) throw e;
           patch(row.id, { state: "error", message: errorText(e) });
         }
       }
-      window.dispatchEvent(new Event("pdf-system:files-changed"));
+      filesChanged();
     } catch (e) {
-      setError(errorText(e));
+      if (!isCancellation(e)) setError(errorText(e));
     } finally {
       setBusy(false);
     }

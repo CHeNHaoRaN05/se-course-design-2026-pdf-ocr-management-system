@@ -1,4 +1,9 @@
 import {
+  publishLogout,
+  LOGOUT_EVENT,
+  clearLogoutNotice,
+} from "../shared/sessionEvents";
+import {
   createContext,
   useCallback,
   useContext,
@@ -8,7 +13,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, tokenStore, TOKEN_KEY, TOKEN_CHANGED } from "../shared/http";
+import {
+  ApiError,
+  api,
+  tokenStore,
+  TOKEN_KEY,
+  TOKEN_CHANGED,
+} from "../shared/http";
 import { errorText, type UserInfo } from "../features/management/management";
 
 interface AuthState {
@@ -44,9 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sync();
       }
     };
+    const logoutLocal = () => {
+      tokenStore.clear();
+      setToken("");
+      setMe(null);
+    };
+    window.addEventListener(LOGOUT_EVENT, logoutLocal);
     window.addEventListener(TOKEN_CHANGED, sync);
     window.addEventListener("storage", storage);
     return () => {
+      window.removeEventListener(LOGOUT_EVENT, logoutLocal);
       window.removeEventListener(TOKEN_CHANGED, sync);
       window.removeEventListener("storage", storage);
     };
@@ -76,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, [token, revision]);
   const adoptToken = useCallback((value: string) => {
+    clearLogoutNotice();
     tokenStore.set(value);
     setToken(value);
   }, []);
@@ -116,20 +135,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       { method: "POST", signal: controller.signal },
       current,
     );
-    tokenStore.clear();
-    setToken("");
-    setMe(null);
+    publishLogout("已在本机退出，正在确认服务端会话吊销。");
     try {
       await revoke;
-    } catch {
-      try {
-        sessionStorage.setItem(
-          "pdf_logout_notice",
-          "已在本机退出；网络异常，未确认服务端会话吊销。旧会话将在过期后失效。",
+      publishLogout("已退出，服务端会话已吊销。", false);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        publishLogout("已退出，服务端会话已失效。", false);
+      else
+        publishLogout(
+          `已在本机退出；未确认服务端会话吊销（${error instanceof ApiError && error.status ? `服务返回${error.status}` : error instanceof Error && error.name === "AbortError" ? "确认超时" : "连接异常"}）。旧会话将在过期后失效。`,
+          false,
         );
-      } catch {
-        /* 无持久化 */
-      }
     } finally {
       window.clearTimeout(timer);
     }

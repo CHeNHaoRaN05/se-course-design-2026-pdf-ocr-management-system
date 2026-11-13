@@ -1,31 +1,50 @@
 import { normalizeFilename } from "../management/management";
 import { readAllPages } from "../management/pagination";
-import { api, apiBlob } from "../../shared/http";
+import { delay, throwIfAborted } from "../../shared/requests";
+import { api, apiBlob, ApiError } from "../../shared/http";
 import type { FileItem } from "../../shared/types";
 
 export const listFiles = (params: Record<string, string> = {}) =>
   api<FileItem[]>("/files?" + new URLSearchParams(params));
 
-export const uploadFile = (file: File) => {
+export const uploadFile = (file: File, signal?: AbortSignal) => {
   const body = new FormData();
   body.set("file", file, normalizeFilename(file.name));
-  return api<FileItem>("/files", { method: "POST", body });
+  return api<FileItem>("/files", { method: "POST", body, signal });
 };
 
 export const deleteFile = (fileId: string) =>
   api<FileItem>(`/files/${fileId}`, { method: "DELETE" });
 
-export const updateFile = (
+export async function updateFile(
   fileId: string,
   patch: { name?: string; folder?: string; tags?: string[] },
-) =>
-  api<FileItem>(`/files/${fileId}`, {
-    method: "PATCH",
-    body: JSON.stringify(patch),
-  });
+  signal?: AbortSignal,
+): Promise<FileItem> {
+  // These PATCH fields replace metadata, so transport-only retries are idempotent.
+  for (let attempt = 0; ; attempt++) {
+    throwIfAborted(signal);
+    try {
+      return await api<FileItem>(`/files/${fileId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+        signal,
+      });
+    } catch (error) {
+      if (
+        !(error instanceof ApiError) ||
+        ![0, 408, 502, 503, 504].includes(error.status) ||
+        attempt >= 2
+      )
+        throw error;
+      await delay(150 * (attempt + 1), signal);
+    }
+  }
+}
 
 /** 原文件：pdf.js 需要带 JWT 直连，因此统一走 apiBlob 再转 objectURL。 */
-export const fileBlob = (fileId: string) => apiBlob(`/files/${fileId}/content`);
+export const fileBlob = (fileId: string, signal?: AbortSignal) =>
+  apiBlob(`/files/${fileId}/content`, undefined, signal);
 
 export const pageSizes = (fileId: string) =>
   api<
@@ -43,22 +62,37 @@ export interface FileQuery {
   items: (FileItem & { status: string; generation: number | null })[];
   total: number;
   status_available: boolean;
+  effective_sort: string;
 }
 export const queryFiles = (
   params: Record<string, string>,
   signal?: AbortSignal,
 ) => api<FileQuery>(`/files/query?${new URLSearchParams(params)}`, { signal });
-export const bulkFiles = (body: {
-  file_ids: string[];
-  action: "delete" | "move" | "tag";
-  folder?: string;
-  tags?: string[];
-  append_tags?: boolean;
-}) =>
+export const bulkFiles = (
+  body: {
+    file_ids: string[];
+    action: "delete" | "move" | "tag";
+    folder?: string;
+    tags?: string[];
+    append_tags?: boolean;
+  },
+  signal?: AbortSignal,
+) =>
   api<{ items: { id: string; name: string; ok: boolean; message?: string }[] }>(
     "/files/bulk",
-    { method: "POST", body: JSON.stringify(body) },
-  );
+    { method: "POST", body: JSON.stringify(body), signal },
+  ).catch((error) => {
+    if (
+      error instanceof ApiError &&
+      error.status === 409 &&
+      error.body &&
+      Array.isArray((error.body as { items?: unknown }).items)
+    )
+      return error.body as {
+        items: { id: string; name: string; ok: boolean; message?: string }[];
+      };
+    throw error;
+  });
 export const mergeFiles = (file_ids: string[], name: string) =>
   api<FileItem>("/files/merge", {
     method: "POST",

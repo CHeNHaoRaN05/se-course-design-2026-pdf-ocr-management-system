@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, downloadBlob, publicFile } from "../../shared/http";
 import { errorText, formatBytes } from "../management/management";
@@ -11,7 +11,12 @@ interface Metadata {
   size: number;
 }
 export default function PublicSharePage() {
+  const controller = useRef(new AbortController());
   const { token = "" } = useParams();
+  useEffect(() => {
+    controller.current = new AbortController();
+    return () => controller.current.abort();
+  }, [token]);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -32,21 +37,25 @@ export default function PublicSharePage() {
     setError("");
     setMeta(null);
     setFile(null);
+    const signal = controller.current.signal;
     try {
       const result = await publicFile(
         `/share/token/${encodeURIComponent(token)}${code.trim() ? `?code=${encodeURIComponent(code.trim())}` : ""}`,
+        signal,
       );
-      if (result.blob.type.includes("application/json"))
-        setMeta(JSON.parse(await result.blob.text()) as Metadata);
-      else setFile(result);
+      if (result.blob.type.includes("application/json")) {
+        const metadata = JSON.parse(await result.blob.text()) as Metadata;
+        if (!signal.aborted) setMeta(metadata);
+      } else if (!signal.aborted) setFile(result);
     } catch (e) {
+      if (signal.aborted) return;
       setError(
         e instanceof ApiError && [404, 410].includes(e.status)
           ? "无法访问此分享。请检查提取码，或联系分享者确认链接是否有效。"
           : errorText(e),
       );
     } finally {
-      setBusy(false);
+      if (!signal.aborted) setBusy(false);
     }
   }
   return (

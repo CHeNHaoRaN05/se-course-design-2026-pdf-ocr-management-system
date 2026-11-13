@@ -22,7 +22,7 @@ legacy_router = APIRouter(prefix="/files", tags=["02 文件管理与阅读器·�
 def view(record) -> dict:
     return dict(id=record.id, name=record.name, folder=record.folder, media_type=record.media_type,
                 size=record.size, page_count=record.page_count, version=record.version,
-                tags=[t.name for t in record.tags], created_at=record.created_at)
+                tags=[t.name for t in record.tags], created_at=record.created_at, replaced_from=record.replaced_from)
 
 
 @legacy_router.post("", status_code=201, response_model=FileOut)
@@ -35,7 +35,7 @@ def upload_endpoint(request: Request, file: UploadFile = UploadField(...),
 
 
 @legacy_router.get("", response_model=list[FileOut])
-def list_endpoint(folder: str | None = None, tag: str | None = None, q: str | None = None,
+def list_endpoint(folder: str | None = Query(None, max_length=255), tag: str | None = Query(None, max_length=64), q: str | None = Query(None, max_length=255),
                   limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=1_000_000),
                   session: Session = Depends(get_session), user: Principal = Depends(current_user)):
     return [view(r) for r in listing(session, user, folder=folder, tag=tag, q=q, limit=limit, offset=offset)]

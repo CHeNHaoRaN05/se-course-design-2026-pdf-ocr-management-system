@@ -29,6 +29,9 @@ jobs:
           pip install -r requirements.txt
           pip install -r ../pdf_ocr_module/ocr_service/requirements.txt pypdf==5.6.0
 
+      - name: Verify generated OpenAPI contract
+        run: python -m backend.scripts.export_contract --check
+
       # 安装 OCR 的轻量 API/图像依赖，确保契约与检索测试实际执行；不安装 Paddle/模型。
       - name: Run tests
         env:
@@ -75,7 +78,14 @@ jobs:
         run: |
           npm ci
           python -m pip install -r ../requirements.txt
-          npx playwright install --with-deps chromium-headless-shell
+      - name: Install Chromium with Linux system dependencies
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium-headless-shell
+      - name: Install Chromium on Windows
+        if: runner.os == 'Windows'
+        run: npx playwright install chromium-headless-shell
+      - name: Backend regressions on the same platform
+        run: python -m pytest ../backend/tests/test_retest_review.py -q
       - name: Unit tests (shell-independent file discovery)
         run: npm test
       - name: Browser contract and failure regressions

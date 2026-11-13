@@ -1,3 +1,4 @@
+import { onFilesChanged } from "../management/fileEvents";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
@@ -65,6 +66,7 @@ export default function FilesPage() {
       ),
     [q, folder, tag, type, status, sort, dateFrom, dateTo, page],
   );
+  useEffect(() => onFilesChanged(resource.reload), [resource.reload]);
   const metadata = useResource(
     async (signal) => {
       const [folders, tags, overview] = await Promise.all([
@@ -79,7 +81,14 @@ export default function FilesPage() {
     [resource.data],
   );
   const files = resource.data?.items ?? [];
-  const folders = [...new Set((metadata.data?.folders ?? []).flatMap(path => { const parts=path.split("/").filter(Boolean); return parts.map((_,i)=>"/"+parts.slice(0,i+1).join("/")); }))].sort();
+  const folders = [
+    ...new Set(
+      (metadata.data?.folders ?? []).flatMap((path) => {
+        const parts = path.split("/").filter(Boolean);
+        return parts.map((_, i) => "/" + parts.slice(0, i + 1).join("/"));
+      }),
+    ),
+  ].sort();
   const tags = metadata.data?.tags ?? [];
   const statusReady = resource.data?.status_available ?? false;
   const filtered = files;
@@ -114,9 +123,11 @@ export default function FilesPage() {
   }, [page]);
   // 状态服务不可用时仍展示服务端返回的文档；解除旧条件使用户能重新选择。
   useEffect(() => {
-    if (resource.data && !resource.data.status_available && status)
-      setStatus("");
-  }, [resource.data, status]);
+    if (resource.data && !resource.data.status_available) {
+      if (status) setStatus("");
+      if (sort === "status") setSort("newest");
+    }
+  }, [resource.data, status, sort]);
   function toggle(id: string) {
     setSelected((previous) =>
       previous.includes(id)
@@ -264,7 +275,7 @@ export default function FilesPage() {
       )}
       {resource.data && !statusReady && (
         <Notice tone="warning">
-          识别状态暂不可用，已取消状态筛选，文档仍可正常访问。
+          识别状态暂不可用，当前使用非状态筛选；如选择状态排序，将恢复最新上传排序。
         </Notice>
       )}
       <div className="library-layout">
@@ -291,7 +302,6 @@ export default function FilesPage() {
               >
                 <Icon name="folder" size={16} />
                 <span className="folder-name">{path.split("/").pop()}</span>
-
               </button>
             ))}
           </div>
@@ -349,6 +359,7 @@ export default function FilesPage() {
               <Icon name="search" size={17} />
               <input
                 aria-label="按文件名搜索"
+                maxLength={255}
                 placeholder="搜索文件名…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
@@ -390,7 +401,9 @@ export default function FilesPage() {
               <option value="name">名称排序</option>
               <option value="size">大小排序</option>
               <option value="pages">页数排序</option>
-              <option value="status">状态排序</option>
+              <option value="status" disabled={!statusReady}>
+                状态排序
+              </option>
             </select>
             <label>
               开始日期（UTC）
@@ -698,6 +711,7 @@ export default function FilesPage() {
             <dd>
               {files.find((f) => f.id === detail.id)?.generation ?? "不可用"}
             </dd>
+            <dt>来源文档</dt><dd className="mono">{detail.replaced_from || "原始上传"}</dd>
             <dt>版本</dt>
             <dd>v{detail.version}</dd>
             <dt>上传时间</dt>

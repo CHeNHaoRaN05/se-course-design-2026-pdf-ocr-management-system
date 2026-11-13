@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
 import { api } from "../../shared/http";
@@ -7,6 +7,7 @@ import {
   formatBytes,
   formatDate,
   type TrashItem,
+  type PageResult,
 } from "../management/management";
 import {
   EmptyState,
@@ -19,27 +20,25 @@ import {
   Pagination,
 } from "../management/ui";
 import { useResource } from "../management/useResource";
-import { readAllPages } from "../management/pagination";
 import { purgeFile, restoreFile } from "./filesApi";
 
 export default function TrashPage() {
   const { me } = useAuth();
   const editor = me?.role !== "viewer";
-  const resource = useResource(
-    async (signal) => {
-      const items = await readAllPages(
-        (offset) =>
-          api<TrashItem[]>(`/files/trash?limit=100&offset=${offset}`, {
-            signal,
-          }),
-        signal,
-      );
-      return { items };
-    },
-    [me?.id],
-  );
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const resource = useResource(
+    (signal) =>
+      api<PageResult<TrashItem>>(
+        `/files/trash?envelope=true&limit=12&offset=${(page - 1) * 12}&q=${encodeURIComponent(q)}`,
+        { signal },
+      ),
+    [me?.id, page, q],
+  );
+  useEffect(() => {
+    if (resource.data && page > 1 && (page - 1) * 12 >= resource.data.total)
+      setPage(Math.max(1, Math.ceil(resource.data.total / 12)));
+  }, [resource.data, page]);
   const [selected, setSelected] = useState<string[]>([]);
   const [restoreId, setRestoreId] = useState("");
   const [operation, setOperation] = useState<{
@@ -52,10 +51,9 @@ export default function TrashPage() {
     { name: string; ok: boolean; error?: string }[]
   >([]);
   const [done, setDone] = useState(false);
-  const filtered = (resource.data?.items ?? []).filter((file) =>
-    file.name.toLowerCase().includes(q.toLowerCase()),
-  );
-  const current = Math.min(page, Math.max(1, Math.ceil(filtered.length / 12)));
+  const filtered = resource.data?.items ?? [];
+  const current = page;
+  useEffect(() => setSelected([]), [page, q]);
   function begin(purge: boolean, items: { id: string; name: string }[]) {
     setOperation({ purge, items });
     setConfirmed(false);
@@ -101,9 +99,7 @@ export default function TrashPage() {
         <div className="panel-heading">
           <h2>
             已删除文档
-            <span className="count-badge">
-              {resource.data?.items.length ?? "—"}
-            </span>
+            <span className="count-badge">{resource.data?.total ?? "—"}</span>
           </h2>
           <label className="input-icon">
             <Icon name="search" size={16} />
@@ -179,60 +175,58 @@ export default function TrashPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered
-                    .slice((current - 1) * 12, current * 12)
-                    .map((file) => (
-                      <tr key={file.id}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            aria-label={`选择 ${file.name}`}
-                            checked={selected.includes(file.id)}
-                            onChange={(e) =>
-                              setSelected((old) =>
-                                e.target.checked
-                                  ? [...old, file.id]
-                                  : old.filter((id) => id !== file.id),
-                              )
-                            }
-                          />
-                        </td>
-                        <td>
-                          <div className="file-name-cell">
-                            <FileGlyph type={file.media_type} />
-                            <div>
-                              <strong>{file.name}</strong>
-                              <small className="cell-sub mono">{file.id}</small>
-                            </div>
+                  {filtered.map((file) => (
+                    <tr key={file.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`选择 ${file.name}`}
+                          checked={selected.includes(file.id)}
+                          onChange={(e) =>
+                            setSelected((old) =>
+                              e.target.checked
+                                ? [...old, file.id]
+                                : old.filter((id) => id !== file.id),
+                            )
+                          }
+                        />
+                      </td>
+                      <td>
+                        <div className="file-name-cell">
+                          <FileGlyph type={file.media_type} />
+                          <div>
+                            <strong>{file.name}</strong>
+                            <small className="cell-sub mono">{file.id}</small>
                           </div>
-                        </td>
-                        <td>{formatBytes(file.size)}</td>
-                        <td>{formatDate(file.deleted_at, true)}</td>
-                        <td>
-                          <div className="row">
-                            <button
-                              disabled={!editor}
-                              onClick={() => begin(false, [file])}
-                            >
-                              还原
-                            </button>
-                            <button
-                              className="danger subtle"
-                              disabled={!editor}
-                              onClick={() => begin(true, [file])}
-                            >
-                              彻底删除
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                        </div>
+                      </td>
+                      <td>{formatBytes(file.size)}</td>
+                      <td>{formatDate(file.deleted_at, true)}</td>
+                      <td>
+                        <div className="row">
+                          <button
+                            disabled={!editor}
+                            onClick={() => begin(false, [file])}
+                          >
+                            还原
+                          </button>
+                          <button
+                            className="danger subtle"
+                            disabled={!editor}
+                            onClick={() => begin(true, [file])}
+                          >
+                            彻底删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
             <Pagination
               page={current}
-              total={filtered.length}
+              total={resource.data?.total ?? 0}
               pageSize={12}
               onChange={setPage}
             />

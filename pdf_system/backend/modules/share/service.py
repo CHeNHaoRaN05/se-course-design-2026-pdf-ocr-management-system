@@ -23,6 +23,8 @@ def create_share(session, user, *, file_id: str, expires_at: datetime | None,
         if expires_in_days is not None and expires_in_days not in {1, 7, 30}:
             raise bad_request("有效期只允许1、7或30天")
         expires_at = current + timedelta(days=expires_in_days or 7)
+    elif expires_at.tzinfo is None:
+        raise bad_request("绝对有效期必须包含时区Z或偏移")
     elif expires_at.tzinfo is not None:
         expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
     if expires_at <= current:

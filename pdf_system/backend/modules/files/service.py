@@ -11,7 +11,7 @@ import errno
 import unicodedata
 
 from fastapi import UploadFile, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update as sql_update
 
 from ...core.audit import audit
 from ...core.errors import bad_request, not_found
@@ -39,21 +39,33 @@ def normalize_tags(values: list[str]) -> list[str]:
 
 def safe_name(value: str) -> str:
     name = value.replace("\\", "/").split("/")[-1].strip()
-    name = "".join(c for c in name if not unicodedata.category(c).startswith("C"))
+    name = "".join(c for c in name if not unicodedata.category(c).startswith("C")).strip()
     if not name or name in {".", ".."}:
         raise bad_request("文件名不能为空")
     suffix = Path(name).suffix[:20]
-    stem = name[:-len(suffix)] if suffix else name
-    return stem[:255-len(suffix)] + suffix
+    stem = (name[:-len(suffix)] if suffix else name).rstrip()
+    if not stem:
+        raise bad_request("文件名不能为空")
+    return stem[:255-len(suffix)].rstrip() + suffix
 
 
 def pdf_name(value: str) -> str:
     return safe_name(value if value.lower().endswith(".pdf") else value + ".pdf")
 
 
-def available_name(session, owner_id: str, value: str) -> str:
+def lock_names(session, owner_id: str) -> None:
+    # A real UPDATE acquires SQLite's writer lock and a MySQL user-row lock.
+    # The lock is held by this transaction until commit/rollback, including other processes.
+    session.execute(sql_update(User).where(User.id == owner_id).values(token_version=User.token_version),
+                    execution_options={"synchronize_session": False})
+
+
+def available_name(session, owner_id: str, value: str, exclude_id: str | None = None) -> str:
     name = safe_name(value)
-    names = set(session.scalars(select(File.name).where(File.owner_id == owner_id)))
+    query = select(File.name).where(File.owner_id == owner_id, File.deleted_at.is_(None))
+    if exclude_id:
+        query = query.where(File.id != exclude_id)
+    names = set(session.scalars(query))
     suffix = Path(name).suffix
     stem = name[:-len(suffix)] if suffix else name
     index = 1
@@ -80,8 +92,7 @@ def _tags_of(session, owner_id: str, names: list[str]) -> list[Tag]:
 
 
 def upload(session, settings, user: Principal, upload_file: UploadFile) -> File:
-    session.execute(select(User.id).where(User.id == user.user_id).with_for_update()).all()
-    raw_name = available_name(session, user.user_id, upload_file.filename or "document")
+    safe_name(upload_file.filename or "document")
     ident = uid()
     key = f"uploads/{ident}.bin"
     try:
@@ -96,6 +107,12 @@ def upload(session, settings, user: Principal, upload_file: UploadFile) -> File:
                 raise HTTPException(507, "存储空间不足") from exc
             raise
         raise bad_request(str(exc))
+    try:
+        lock_names(session, user.user_id)
+        raw_name = available_name(session, user.user_id, upload_file.filename or "document")
+    except Exception:
+        (settings.storage_dir / key).unlink(missing_ok=True)
+        raise
     record = File(id=ident, owner_id=user.user_id, name=raw_name, storage_key=key, media_type=media_type,
                   sha256=digest, size=size, page_count=page_count)
     try:
@@ -140,7 +157,8 @@ def listing(session, user: Principal, *, folder: str | None, tag: str | None, q:
 def update(session, file_id: str, user: Principal, *, name=None, folder=None, tags=None) -> File:
     record = owned_file(session, file_id, user)
     if name is not None:
-        record.name = safe_name(name)
+        lock_names(session, record.owner_id)
+        record.name = available_name(session, record.owner_id, name, exclude_id=file_id)
     if folder is not None:
         record.folder = normalize_folder(folder)
     if tags is not None:
@@ -164,7 +182,10 @@ def restore(session, file_id: str, user: Principal) -> File:
     record = session.scalar(statement)
     if record is None or (record.owner_id != user.user_id and not user.is_admin):
         raise not_found()
+    lock_names(session, record.owner_id)
+    record.name = available_name(session, record.owner_id, record.name, exclude_id=file_id)
     record.deleted_at = None
+    _sync_ocr_file(session, record)
     audit(session, user.user_id, "file_restored", file_id)
     return record
 

@@ -30,6 +30,13 @@ def main():
         )
         app = create_app(settings)
         Base.metadata.create_all(app.state.engine)
+        if os.environ.get("SE_SMOKE_ADMIN_PASSWORD"):
+            from backend.models import User
+            from backend.core.security import hash_password
+            with app.state.sessions() as session:
+                session.add(User(email="admin@e2e.test", display_name="E2E Admin", role="admin",
+                                 password_hash=hash_password(os.environ["SE_SMOKE_ADMIN_PASSWORD"])))
+                session.commit()
         @app.get("/__smoke_ready")
         def ready():
             return {"marker": os.environ.get("SE_SMOKE_MARKER", "manual")}

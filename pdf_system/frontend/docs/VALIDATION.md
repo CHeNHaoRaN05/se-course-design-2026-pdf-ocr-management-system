@@ -1,3 +1,34 @@
+# 最新验证：2026-11-13复测修复
+
+基线为已推送的613be22，fetch确认main仍是8cf647f。用户报告记录前次CI在2026-11-11 08:13:54 UTC成功；本次REST独立查询限流，不将旧状态称作实时状态。修复环境为macOS；用户复测win32和CI Windows环境分别记录。
+
+| 验证 | 结果 |
+|---|---|
+| 后端与轻量OCR API | 137项通过，含四线程命名/计数/结算、来源版本、锁范围、total等回归 |
+| 前端单测 | 18项通过，含fetch/body取消、超时分类、幂等PATCH有限重试、部分重复页、Unicode命名 |
+| 浏览器contract项目 | 27项通过；明确的故障注入，未拦截API请求会使测试失败 |
+| 浏览器real-api项目 | 8项通过；无route mock，真实FastAPI/SQLite/PDF，含并发与双标签页刷新 |
+| 独立真实工作流 | 连续3次通过，分别保存live-result-1/2/3.json；不是无限重试 |
+| 生产构建 | TypeScript和Vite通过 |
+| 完整OpenAPI | 59路径/68操作，从实际装配生成；--check通过 |
+| 报告产物 | playwright-report/index.html与test-results/browser-results.json实际存在 |
+
+## 证据与可重复性
+
+`npm run test:e2e`自动启动临时真实API和两套Vite；contract与real-api结果分别记录，不能合称为35个真实联调。`npm run test:live`分配独立端口并清理临时服务和数据，每次运行返回独立结果。修复后3次成功不能证明所有环境永不出现连接重置；原报告偶发故障缺少后端原始日志，未武断认定唯一根因。
+
+CI现在显式区分Linux/Windows安装步骤，运行同平台本轮后端回归、前端单测、两个浏览器项目、独立真实流程，并上传HTML/JSON/失败追踪。本轮新修复尚未push，不能用前次613be22成功的CI证明新代码已在远端通过。
+
+## 边界
+
+客户端取消不撤销已提交任务；C3跨月/同ID重试/无人值守结算仍需专项改造。当前settle端点的四路并发与viewer归属已覆盖，但不是整套配额契约验收。分享限速仅为单进程，生产多worker需共享限速。完整版本历史、阅读器高级功能、MySQL和Paddle模型验收不在本轮完成范围。
+
+源码改动、历史误判与外部待办逐项见仓库 `docs/reviews/02-retest-resolution.md`。下文保留旧验证历史，不能用其中旧时点状态覆盖本节。
+
+---
+
+> 历史记录更新（2026-11-13）：本文原“未推送/未执行远端CI”描述仅对应当时编写时点。提交613be22随后已推送；用户复测报告记录2026-11-11 08:13:54 UTC的CI成功。本轮独立API查询被限流，不把报告时间当成实时查询。当前修复与状态见仓库 `docs/reviews/02-retest-resolution.md`。
+
 # 验证记录：2026-11-11审查修复
 
 本轮基线：fetch的main `8cf647f` 和PR #9 head `1c9971d`。本地修复在 `feat/02-management-frontend`，不push。原始报告和历史验证记录保留，下面是当前结论。

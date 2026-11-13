@@ -1,12 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { api, downloadBlob } from "../../shared/http";
-import { formatDate, type AuditItem } from "../management/management";
+import {
+  formatDate,
+  type PageResult,
+  type AuditItem,
+} from "../management/management";
 import {
   EmptyState,
   Icon,
   Loading,
   Notice,
   PageHeading,
+  Pagination,
 } from "../management/ui";
 import { csvCell, validDateRange } from "../management/csv";
 import { useResource } from "../management/useResource";
@@ -32,17 +37,18 @@ export default function AuditPage() {
   const resource = useResource(
     (signal) => {
       const params = new URLSearchParams({
-        limit: "21",
+        limit: "20",
+        envelope: "true",
         offset: String(offset),
       });
       Object.entries(submitted).forEach(([key, value]) => {
         if (value) params.set(key, value);
       });
-      return api<AuditItem[]>(`/audit?${params}`, { signal });
+      return api<PageResult<AuditItem>>(`/audit?${params}`, { signal });
     },
     [submitted, offset],
   );
-  const rows = resource.data?.slice(0, 20) ?? [];
+  const rows = resource.data?.items ?? [];
   function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -55,7 +61,7 @@ export default function AuditPage() {
   }
   function exportCsv() {
     const lines = [
-      ["时间", "用户 ID", "动作", "资源 ID"],
+      ["时间（UTC，原始值）", "用户 ID", "动作", "资源 ID"],
       ...rows.map((row) => [
         row.created_at,
         row.actor_id,
@@ -176,7 +182,7 @@ export default function AuditPage() {
             <table>
               <thead>
                 <tr>
-                  <th>操作时间</th>
+                  <th>操作时间（本地时区）</th>
                   <th>用户 ID</th>
                   <th>操作类型</th>
                   <th>资源 ID</th>
@@ -200,25 +206,12 @@ export default function AuditPage() {
           </div>
         )}
         {resource.data && (
-          <div className="pagination">
-            <span>
-              第 {Math.floor(offset / 20) + 1} 页 · 本页 {rows.length} 条
-            </span>
-            <div className="row">
-              <button
-                disabled={offset === 0 || resource.loading}
-                onClick={() => setOffset(offset - 20)}
-              >
-                上一页
-              </button>
-              <button
-                disabled={resource.data.length <= 20 || resource.loading}
-                onClick={() => setOffset(offset + 20)}
-              >
-                下一页
-              </button>
-            </div>
-          </div>
+          <Pagination
+            page={Math.floor(offset / 20) + 1}
+            total={resource.data.total}
+            pageSize={20}
+            onChange={(page) => setOffset((page - 1) * 20)}
+          />
         )}
       </section>
       <p className="muted">日志只读；导出仅包含时间、用户、动作和资源标识。</p>

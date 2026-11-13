@@ -16,6 +16,13 @@ class ShareCreate(StrictModel):
     access_code: str | None = Field(default=None, max_length=32)
     allow_download: bool = True
 
+    @field_validator("expires_at")
+    @classmethod
+    def timezone_required(cls, value):
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("绝对有效期必须包含时区Z或偏移，建议传expires_in_days")
+        return value
+
     @field_validator("access_code")
     @classmethod
     def visible_code(cls, value):

@@ -3,9 +3,10 @@ import errno
 import io
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -16,7 +17,9 @@ from ...core.media import PDFIUM_LOCK, MediaError, inspect_media, safe_path
 from ...core.principal import Principal, current_user, owned_file, require_editor
 from ...models import File, User
 from . import service
-from .schemas import FileOut
+from .schemas import FileOut, FileQueryOut, TrashOut
+from ...core.pagination import PageResult
+from ...core.audit import audit
 
 router = APIRouter(prefix="/files", tags=["02 文件管理"])
 MAX_OFFSET = 1_000_000
@@ -27,7 +30,7 @@ Status = Literal["none", "queued", "running", "retry_wait", "succeeded", "partia
 def view(record, **extra):
     return dict(id=record.id, name=record.name, folder=record.folder, media_type=record.media_type,
                 size=record.size, page_count=record.page_count, version=record.version,
-                tags=[t.name for t in record.tags], created_at=record.created_at, **extra)
+                tags=[t.name for t in record.tags], created_at=record.created_at, replaced_from=record.replaced_from, **extra)
 
 
 def date_filter(statement, column, date_from, date_to):
@@ -42,9 +45,9 @@ def date_filter(statement, column, date_from, date_to):
     return statement
 
 
-@router.get("/query")
-def query(request: Request, q: str = Query("", max_length=255), folder: str | None = None,
-          tag: str | None = None, media_type: MediaType | None = None,
+@router.get("/query", response_model=FileQueryOut)
+def query(request: Request, q: str = Query("", max_length=255), folder: str | None = Query(None, max_length=255),
+          tag: str | None = Query(None, max_length=64), media_type: MediaType | None = None,
           date_from: date | None = None, date_to: date | None = None,
           status: Status | None = None, sort: Literal["newest", "name", "size", "pages", "status"] = "newest",
           limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
@@ -81,17 +84,21 @@ def query(request: Request, q: str = Query("", max_length=255), folder: str | No
         items = [view(record, status=job_status or "none", generation=job_generation or 0) for record, job_status, job_generation in rows]
     else:
         items = [view(record, status="unknown", generation=None) for record in session.scalars(statement)]
-    return {"items": items, "total": total, "status_available": available}
+    return {"items": items, "total": total, "status_available": available, "effective_sort": "newest" if sort == "status" and not available else sort}
 
 
-@router.get("/trash")
-def trash(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
+@router.get("/trash", response_model=PageResult[TrashOut] | list[TrashOut])
+def trash(q: str = Query("", max_length=255), envelope: bool = False, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
           session: Session = Depends(get_session), user: Principal = Depends(current_user)):
     statement = select(File).where(File.deleted_at.is_not(None))
     if not user.is_admin:
         statement = statement.where(File.owner_id == user.user_id)
+    if q.strip():
+        statement = statement.where(File.name.contains(q.strip(), autoescape=True))
+    total = session.scalar(select(func.count()).select_from(statement.subquery()))
     rows = session.scalars(statement.order_by(File.deleted_at.desc(), File.id).limit(limit).offset(offset))
-    return [view(record, deleted_at=record.deleted_at) for record in rows]
+    items = [view(record, deleted_at=record.deleted_at) for record in rows]
+    return {"items": items, "total": total, "limit": limit, "offset": offset} if envelope else items
 
 
 class Strict(BaseModel):
@@ -99,7 +106,7 @@ class Strict(BaseModel):
 
 
 class FileIds(Strict):
-    file_ids: list[str] = Field(min_length=1, max_length=100)
+    file_ids: list[str] = Field(min_length=1, max_length=100, json_schema_extra={"uniqueItems": True})
 
     @model_validator(mode="after")
     def unique(self):
@@ -115,10 +122,31 @@ class Bulk(FileIds):
     append_tags: bool = True
 
 
-@router.post("/bulk")
+class BulkItem(BaseModel):
+    id: str
+    name: str
+    ok: bool
+    message: str | None = None
+
+
+class BulkResult(BaseModel):
+    items: list[BulkItem]
+    succeeded: int
+    failed: int
+
+
+@router.post("/bulk", response_model=BulkResult, responses={207: {"model": BulkResult}, 409: {"model": BulkResult}})
 def bulk(body: Bulk, session: Session = Depends(get_session), user: Principal = Depends(require_editor)):
     # 全批归属检查在任何修改前进行，越权不暴露名称，且不产生前序写入。
-    records = [owned_file(session, ident, user) for ident in body.file_ids]
+    records = []
+    for ident in body.file_ids:
+        record = session.get(File, ident)
+        if record is None or (record.owner_id != user.user_id and not user.is_admin):
+            from ...core.errors import not_found
+            raise not_found()
+        records.append(record)
+    if body.action == "move" and (body.folder is None or not body.folder.strip()):
+        raise bad_request("移动操作需要非空分类；根目录请填写 /")
     folder = service.normalize_folder(body.folder) if body.action == "move" and body.folder is not None else None
     if body.action == "move" and folder is None:
         raise bad_request("移动操作需要目标分类")
@@ -147,16 +175,18 @@ def bulk(body: Bulk, session: Session = Depends(get_session), user: Principal = 
             session.rollback()
             items.append({"id": ident, "name": name, "ok": False, "message": "操作失败，请刷新后重试"})
     succeeded = sum(item["ok"] for item in items)
-    return {"items": items, "succeeded": succeeded, "failed": len(items) - succeeded}
+    result = {"items": items, "succeeded": succeeded, "failed": len(items) - succeeded}
+    return JSONResponse(result, status_code=200 if succeeded == len(items) else 207 if succeeded else 409)
 
 
 class Merge(FileIds):
+    file_ids: list[str] = Field(min_length=2, max_length=100, json_schema_extra={"uniqueItems": True})
     name: str = Field(min_length=1, max_length=255)
 
 
 class Split(Strict):
     name: str = Field(min_length=1, max_length=200)
-    groups: list[list[int]] | None = Field(None, min_length=1, max_length=100)
+    groups: list[Annotated[list[Annotated[int, Field(ge=1, le=100, strict=True)]], Field(min_length=1, max_length=100, json_schema_extra={"uniqueItems": True})]] | None = Field(None, min_length=1, max_length=100)
     every: int | None = Field(None, ge=1, le=100)
 
     @model_validator(mode="after")
@@ -181,7 +211,7 @@ def sources(session, settings, user, ids):
             import pypdfium2.raw as raw
             path = safe_path(settings.storage_dir, record.storage_key)
             kind, count = inspect_media(path, max_pages=settings.max_pages, max_pixels=settings.max_pixels)
-            with pdfium.PdfDocument(str(path)) as document:
+            with PDFIUM_LOCK, pdfium.PdfDocument(str(path)) as document:
                 if raw.FPDF_GetSecurityHandlerRevision(document) >= 0:
                     raise MediaError("invalid_or_encrypted_pdf")
                 for page_no in range(count):
@@ -202,26 +232,29 @@ def sources(session, settings, user, ids):
     return result
 
 
-def generate(session, settings, user, plans):
-    """每批最多100输出页；数据库失败清理新输出，原件从不修改。"""
+def generate(session, settings, user, plans, source_ids):
+    """PDFium calls alone hold its lock; filesystem/SQL do not. Output batch is atomic."""
     import pypdfium2 as pdfium
     created = []
     try:
-        # 同用户命名串行化（MySQL 行锁），与常规上传使用相同锁顺序。
-        session.execute(select(User.id).where(User.id == user.user_id).with_for_update()).all()
-        with PDFIUM_LOCK:
-            for name, parts in plans:
+        originals = [owned_file(session, ident, user) for ident in source_ids]
+        version = max(record.version for record in originals) + 1
+        for name, parts in plans:
+            with PDFIUM_LOCK:
                 with pdfium.PdfDocument.new() as output:
                     for path, pages in parts:
                         with pdfium.PdfDocument(str(path)) as source:
                             output.import_pages(source, pages=pages)
                     data = io.BytesIO()
                     output.save(data)
-                if data.tell() > settings.max_upload_bytes:
-                    raise bad_request("upload_size_limit")
-                data.seek(0)
-                uploaded = service.upload(session, settings, user, UploadFile(data, filename=service.pdf_name(name)))
-                created.append(uploaded)
+            if data.tell() > settings.max_upload_bytes:
+                raise bad_request("upload_size_limit")
+            data.seek(0)
+            uploaded = service.upload(session, settings, user, UploadFile(data, filename=service.pdf_name(name)))
+            created.append(uploaded)
+            uploaded.version = version
+            uploaded.replaced_from = source_ids[0]
+            audit(session, user.user_id, "file_derived", uploaded.id, source_file_ids=source_ids, version=version)
         result = [view(record) for record in created]
         session.commit()
         return result
@@ -241,24 +274,18 @@ def generate(session, settings, user, plans):
 
 @router.post("/merge", status_code=201, response_model=FileOut)
 def merge(body: Merge, request: Request, session: Session = Depends(get_session), user: Principal = Depends(require_editor)):
-    if len(body.file_ids) < 2:
-        raise bad_request("合并至少需要两个 PDF")
     settings = request.app.state.settings
-    session.execute(select(User.id).where(User.id == user.user_id).with_for_update()).all()
-    with PDFIUM_LOCK:
-        files = sources(session, settings, user, body.file_ids)
-        if sum(count for _, count in files) > settings.max_pages:
-            raise bad_request("pdf_page_limit")
-        return generate(session, settings, user, [(body.name, [(path, list(range(count))) for path, count in files])])[0]
+    files = sources(session, settings, user, body.file_ids)
+    if sum(count for _, count in files) > settings.max_pages:
+        raise bad_request("pdf_page_limit")
+    return generate(session, settings, user, [(body.name, [(path, list(range(count))) for path, count in files])], body.file_ids)[0]
 
 
 @router.post("/{file_id}/split", status_code=201, response_model=list[FileOut])
 def split(file_id: str, body: Split, request: Request, session: Session = Depends(get_session), user: Principal = Depends(require_editor)):
     settings = request.app.state.settings
-    session.execute(select(User.id).where(User.id == user.user_id).with_for_update()).all()
-    with PDFIUM_LOCK:
-        path, count = sources(session, settings, user, [file_id])[0]
-        groups = body.groups if body.groups is not None else [list(range(start, min(start + body.every, count + 1))) for start in range(1, count + 1, body.every)]
-        if any(page > count for group in groups for page in group):
-            raise bad_request("拆分页码超出文件实际范围")
-        return generate(session, settings, user, [(f"{body.name}-{i + 1}.pdf", [(path, [page - 1 for page in group])]) for i, group in enumerate(groups)])
+    path, count = sources(session, settings, user, [file_id])[0]
+    groups = body.groups if body.groups is not None else [list(range(start, min(start + body.every, count + 1))) for start in range(1, count + 1, body.every)]
+    if any(page > count for group in groups for page in group):
+        raise bad_request("拆分页码超出文件实际范围")
+    return generate(session, settings, user, [(f"{body.name}-{i + 1}.pdf", [(path, [page - 1 for page in group])]) for i, group in enumerate(groups)], [file_id])

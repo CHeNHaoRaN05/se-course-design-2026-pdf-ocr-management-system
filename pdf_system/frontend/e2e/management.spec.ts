@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { mockApi, otherUserId } from "./fixtures";
+import { mockApi, otherUserId, assertNoUnexpectedApi } from "./fixtures";
+
+test.afterEach(async ({ page }) => assertNoUnexpectedApi(page));
 
 test("login and registration validate input and preserve the requested destination", async ({
   page,
@@ -422,7 +424,7 @@ test("status backend unavailable clears stale filter without hiding files", asyn
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   await expect(page.getByLabel("识别状态", { exact: true })).toBeDisabled();
   await expect(page.locator("tbody tr")).toHaveCount(12);
-  await expect(page.getByRole("status")).toContainText("已取消状态筛选");
+  await expect(page.getByRole("status")).toContainText("当前使用非状态筛选");
 });
 
 test("permission errors never fall back to locally cached trash", async ({
@@ -551,4 +553,130 @@ test("unmounting OCR page aborts its in-flight requests and does not settle", as
   release();
   await expect(page.locator("tbody tr")).toHaveCount(12);
   expect(settlements).toBe(0);
+});
+
+test("metadata PATCH transient reset retries automatically without uploading twice", async ({
+  page,
+}) => {
+  const state = await mockApi(page);
+  let patches = 0;
+  await page.route("**/api/v1/files/*", (route) => {
+    if (route.request().method() === "PATCH" && ++patches === 1)
+      return route.abort("connectionreset");
+    return route.fallback();
+  });
+  await page.goto("/upload");
+  await page
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "retry.pdf",
+      mimeType: "application/pdf",
+      buffer: state.pdf,
+    });
+  await page.getByLabel("保存到分类").fill("/retry");
+  await page.getByRole("button", { name: "开始上传", exact: true }).click();
+  await expect(page.locator(".upload-summary")).toContainText("成功 1");
+  expect(patches).toBe(2);
+  expect(
+    state.requests.filter((r) => r.path === "/files" && r.method === "POST"),
+  ).toHaveLength(1);
+});
+
+test("logout notice reaches other tabs and completed revoke cannot log out a new session", async ({
+  page,
+  context,
+}) => {
+  await mockApi(page);
+  const second = await context.newPage();
+  await mockApi(second);
+  await page.goto("/files");
+  await second.goto("/files");
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/v1/auth/logout", async (route) => {
+    await gate;
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await expect(second).toHaveURL(/login/);
+  await expect(second.getByText(/正在确认服务端/)).toBeVisible();
+  await page.getByLabel("邮箱地址").fill("student@example.com");
+  await page.getByLabel("密码", { exact: true }).fill("Password123");
+  await page.getByRole("button", { name: "登录工作空间" }).click();
+  await expect(page).toHaveURL(/files/);
+  release();
+  await expect(page).toHaveURL(/files/);
+  await expect(second).toHaveURL(/files/);
+  await second.close();
+});
+
+test("terminal OCR settlement retries after 500 for viewer and stops after success", async ({
+  page,
+}) => {
+  const state = await mockApi(page, { role: "viewer" });
+  const id = state.files[0].id;
+  const job = "s".repeat(32);
+  let settlements = 0;
+  await page.route(`**/api/v1/ocr-host/files/${id}/jobs`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ job_id: job, status: "succeeded" }),
+    }),
+  );
+  await page.route(`**/api/v1/ocr/jobs/${job}`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: job,
+        status: "succeeded",
+        progress: { percent: 100 },
+        options: {},
+        pages: [],
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/ocr/jobs/${job}/pages`, (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
+  await page.route(`**/api/v1/ocr-host/jobs/${job}/settle`, (route) => {
+    settlements++;
+    return route.fulfill({
+      status: settlements === 1 ? 500 : 200,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.goto(`/files/${id}`);
+  await expect.poll(() => settlements).toBe(2);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("logout errors are synchronized even when localStorage is disabled", async ({
+  page,
+  context,
+}) => {
+  const blocked = `Object.defineProperty(window,'localStorage',{get(){throw new Error('storage blocked')}});`;
+  await page.addInitScript(blocked);
+  await mockApi(page, { loggedIn: false });
+  const second = await context.newPage();
+  await second.addInitScript(blocked);
+  await mockApi(second, { loggedIn: false });
+  for (const tab of [page, second]) {
+    await tab.goto("/login");
+    await tab.getByLabel("邮箱地址").fill("student@example.com");
+    await tab.getByLabel("密码", { exact: true }).fill("Password123");
+    await tab.getByRole("button", { name: "登录工作空间" }).click();
+    await expect(tab).toHaveURL(/files/);
+  }
+  await page.route("**/api/v1/auth/logout", (route) =>
+    route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
+  );
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await expect(second).toHaveURL(/login/);
+  await expect(second.getByText(/服务返回500/)).toBeVisible();
+  await second.close();
 });

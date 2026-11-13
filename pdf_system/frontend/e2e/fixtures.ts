@@ -1,9 +1,16 @@
 /** Browser contract fixtures only. No mock transport or sample data is included in the application. */
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 import type { FileItem } from "../src/shared/types";
 import type { Role, ShareItem } from "../src/features/management/management";
 
+const unexpected = new WeakMap<Page, string[]>();
+export function assertNoUnexpectedApi(page: Page) {
+  expect(
+    unexpected.get(page) ?? [],
+    "contract test issued an unmocked request",
+  ).toEqual([]);
+}
 export const userId = "a".repeat(32);
 export const otherUserId = "b".repeat(32);
 const names = [
@@ -32,6 +39,11 @@ export async function mockApi(
     mounted?: boolean;
   } = {},
 ) {
+  const errors: string[] = [];
+  unexpected.set(page, errors);
+  page.on("response", (response) => {
+    if (response.status() === 599) errors.push(response.url());
+  });
   const role = options.role ?? "user";
   let mounted = options.mounted ?? true;
   const files: FileItem[] = names.map((name, i) => ({
@@ -108,6 +120,20 @@ export async function mockApi(
       auth: request.headers().authorization,
       body,
     });
+    const paged = (items: any[]) => {
+      const offset = Number(url.searchParams.get("offset") || 0);
+      const limit = Number(url.searchParams.get("limit") || 20);
+      return json(
+        url.searchParams.get("envelope") === "true"
+          ? {
+              items: items.slice(offset, offset + limit),
+              total: items.length,
+              limit,
+              offset,
+            }
+          : items,
+      );
+    };
     const json = (data: unknown, status = 200) =>
       route.fulfill({
         status,
@@ -134,7 +160,7 @@ export async function mockApi(
     if (path === "/auth/logout") return empty();
     if (path === "/auth/users")
       return role === "admin"
-        ? json(people)
+        ? paged(people)
         : json({ detail: "需要管理员角色" }, 403);
     const userMatch = path.match(/^\/auth\/users\/([^/]+)\/(role|disabled)$/);
     if (userMatch) {
@@ -183,7 +209,7 @@ export async function mockApi(
       );
     if (path.match(/^\/ocr-host\/files\/.+\/jobs$/))
       return json({ job_id: null, status: null });
-    if (path === "/files/trash") return json(trash);
+    if (path === "/files/trash") return paged(trash);
     if (path === "/files/folders")
       return json([...new Set(files.map((f) => f.folder))]);
     if (path === "/files/tags")
@@ -214,15 +240,14 @@ export async function mockApi(
       const offset = Number(url.searchParams.get("offset"));
       const limit = Number(url.searchParams.get("limit") || 20);
       return json({
-        items: matching
-          .slice(offset, offset + limit)
-          .map((f) => ({
-            ...f,
-            status: mounted ? state(f) : "unknown",
-            generation: mounted ? 1 : null,
-          })),
+        items: matching.slice(offset, offset + limit).map((f) => ({
+          ...f,
+          status: mounted ? state(f) : "unknown",
+          generation: mounted ? 1 : null,
+        })),
         total: matching.length,
         status_available: mounted,
+        effective_sort: mounted ? url.searchParams.get("sort") : "newest",
       });
     }
     if (path === "/files/bulk") {
@@ -376,7 +401,7 @@ export async function mockApi(
       });
     if (path === "/audit")
       return options.extensions
-        ? json([
+        ? paged([
             {
               id: "1",
               actor_id: userId,
@@ -387,7 +412,8 @@ export async function mockApi(
             },
           ])
         : notFound();
-    return notFound();
+    errors.push(`${method} ${path}`);
+    return json({ detail: "Unexpected API in contract test" }, 599);
   });
   return {
     files,

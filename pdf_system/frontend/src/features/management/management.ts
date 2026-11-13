@@ -106,14 +106,19 @@ export function parseTags(value: string): string[] {
 }
 export function normalizeFilename(value: string): string {
   const name = value
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()!
     .trim()
-    .replace(/[\\/]/g, "_")
-    .replace(/[\u0000-\u001f\u007f]/g, "");
+    .replace(/\p{C}/gu, "")
+    .trim();
   if (!name || name === "." || name === "..")
     throw new Error("文件名不能为空。");
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot).slice(0, 20) : "";
-  return (ext ? name.slice(0, dot) : name).slice(0, 255 - ext.length) + ext;
+  const stem = (ext ? name.slice(0, dot) : name).trimEnd();
+  if (!stem) throw new Error("文件名不能为空。");
+  return stem.slice(0, 255 - ext.length).trimEnd() + ext;
 }
 export function uniqueFilename(
   value: string,
@@ -144,3 +149,10 @@ export const statusNames: Record<string, string> = {
   cancelled: "已取消",
   unknown: "状态不可用",
 };
+
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}

@@ -46,4 +46,6 @@ def full_text(q: str = Query(min_length=1, max_length=100), limit: int = Query(2
 @router.get("/suggest", response_model=dict)
 def suggest(q: str = Query(min_length=1, max_length=100), session: Session = Depends(get_session),
             user: Principal = Depends(current_user)):
+    if not q.strip():
+        raise bad_request("检索词不能为空")
     return {"items": suggest_files(session, user, q.strip())}

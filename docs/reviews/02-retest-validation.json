@@ -1,0 +1,58 @@
+{
+  "date": "2026-11-13",
+  "base_commit": "613be22",
+  "environment": "macOS / Python 3.12 / Node",
+  "backend_tests_passed": 137,
+  "frontend_unit_tests_passed": 18,
+  "browser_projects": {
+    "contract": 27,
+    "real-api": 8
+  },
+  "browser_stats": {
+    "startTime": "2026-11-13T07:45:22.143Z",
+    "duration": 18411.769,
+    "expected": 35,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "live_runs": [
+    {
+      "result": "passed",
+      "backend": "real FastAPI/SQLite",
+      "completed": [
+        "register/login/profile",
+        "multi-upload/metadata/list",
+        "merge/split/real-PDF-validation",
+        "share/guest-code/download/revoke",
+        "soft-delete/server-trash/restore",
+        "quota/password/token-rotation/logout"
+      ]
+    },
+    {
+      "result": "passed",
+      "backend": "real FastAPI/SQLite",
+      "completed": [
+        "register/login/profile",
+        "multi-upload/metadata/list",
+        "merge/split/real-PDF-validation",
+        "share/guest-code/download/revoke",
+        "soft-delete/server-trash/restore",
+        "quota/password/token-rotation/logout"
+      ]
+    },
+    {
+      "result": "passed",
+      "backend": "real FastAPI/SQLite",
+      "completed": [
+        "register/login/profile",
+        "multi-upload/metadata/list",
+        "merge/split/real-PDF-validation",
+        "share/guest-code/download/revoke",
+        "soft-delete/server-trash/restore",
+        "quota/password/token-rotation/logout"
+      ]
+    }
+  ],
+  "remote_ci": "User retest report records previous commit success; current REST query rate limited; new changes not pushed"
+}

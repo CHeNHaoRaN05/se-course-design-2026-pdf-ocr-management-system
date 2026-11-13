@@ -4,7 +4,7 @@
 （FR-USER-03 / FR-USER-04）。FR 编号以 docs/team/backend.md 的团队标准为准。
 """
 from fastapi import APIRouter, Depends, Request, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from ...core.errors import bad_request, not_found
 from ...core.principal import Principal, bearer, current_user, require_admin
 from ...models import User
 from .schemas import ChangePasswordIn, DisabledUpdate, LoginIn, RegisterIn, RoleUpdate, TokenOut, UserOut
+from ...core.pagination import PageResult
 from .service import change_password, login, logout, refresh, register, set_disabled
 
 router = APIRouter(prefix="/auth", tags=["01 用户与权限·甲"])
@@ -105,9 +106,14 @@ def set_disabled_endpoint(user_id: str, body: DisabledUpdate,
                    role=target.role, disabled=target.disabled, created_at=target.created_at)
 
 
-@router.get("/users", response_model=list[UserOut])
-def list_users(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=1_000_000),
+@router.get("/users", response_model=PageResult[UserOut] | list[UserOut], openapi_extra={"x-permission": "admin"})
+def list_users(q: str = Query("", max_length=190), envelope: bool = False, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=1_000_000),
                session: Session = Depends(get_session), admin: Principal = Depends(require_admin)):
-    rows = session.scalars(select(User).order_by(User.created_at.desc(), User.id).limit(limit).offset(offset))
-    return [UserOut(id=r.id, email=r.email, display_name=r.display_name, role=r.role,
+    statement = select(User)
+    if q.strip():
+        statement = statement.where(User.email.contains(q.strip(), autoescape=True) | User.display_name.contains(q.strip(), autoescape=True) | User.id.contains(q.strip(), autoescape=True))
+    total = session.scalar(select(func.count()).select_from(statement.subquery()))
+    rows = session.scalars(statement.order_by(User.created_at.desc(), User.id).limit(limit).offset(offset))
+    items = [UserOut(id=r.id, email=r.email, display_name=r.display_name, role=r.role,
                     disabled=r.disabled, created_at=r.created_at) for r in rows]
+    return {"items": items, "total": total, "limit": limit, "offset": offset} if envelope else items

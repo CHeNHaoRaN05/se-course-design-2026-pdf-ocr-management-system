@@ -131,3 +131,76 @@ test("CSV retains raw values and neutralizes formula/control prefixes", () => {
   assert.equal(validDateRange("2026-11-10", "2026-11-09"), false);
   assert.equal(validDateRange("2026-11-09", "2026-11-10"), true);
 });
+
+test("fetch and body cancellation retain AbortError/TimeoutError, not 502", async () => {
+  for (const name of ["AbortError", "TimeoutError"]) {
+    globalThis.fetch = async () => {
+      throw new DOMException("cancel", name);
+    };
+    await assert.rejects(http.api("/probe"), { name });
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new DOMException("cancel", name));
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+    await assert.rejects(http.api("/probe"), { name });
+    await assert.rejects(http.apiBlob("/probe"), { name });
+  }
+  globalThis.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+  await assert.rejects(
+    http.api("/probe"),
+    (error) => error.status === 0 && error.message.includes("连接中断"),
+  );
+});
+test("metadata-only PATCH retries transient failures and aborts during backoff", async () => {
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    assert.equal(init.method, "PATCH");
+    calls++;
+    if (calls < 3) throw new TypeError("socket closed");
+    return new Response(JSON.stringify({ id: "ok" }));
+  };
+  assert.equal((await files.updateFile("id", { folder: "/test" })).id, "ok");
+  assert.equal(calls, 3);
+  calls = 0;
+  const controller = new AbortController();
+  globalThis.fetch = async () => {
+    calls++;
+    controller.abort();
+    throw new TypeError("socket closed");
+  };
+  await assert.rejects(
+    files.updateFile("id", { folder: "/test" }, controller.signal),
+    { name: "AbortError" },
+  );
+  assert.equal(calls, 1);
+  calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response(JSON.stringify({ detail: "invalid" }), { status: 422 });
+  };
+  await assert.rejects(files.updateFile("id", { name: "test" }));
+  assert.equal(calls, 1);
+});
+test("partially repeated pages terminate without silently skipping records", async () => {
+  let calls = 0;
+  const first = Array.from({ length: 100 }, (_, id) => ({ id: String(id) }));
+  await assert.rejects(
+    readAllPages(async () => {
+      calls++;
+      return calls === 1 ? first : [...first.slice(0, 99), { id: "new" }];
+    }),
+    /重复/,
+  );
+  assert.equal(calls, 2);
+});
+test("Unicode invisible characters and stem whitespace normalize before deduplication", () => {
+  assert.equal(normalizeFilename("报告\u200b .pdf "), "报告.pdf");
+  assert.equal(uniqueFilename("报告\u200b .pdf ", ["报告.pdf"]), "报告(1).pdf");
+});
