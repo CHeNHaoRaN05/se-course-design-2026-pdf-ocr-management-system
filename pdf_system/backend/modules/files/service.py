@@ -7,20 +7,78 @@
 OCR 模块未挂载时这些调用自动降级为 no-op，乙的代码不依赖 Paddle 环境。
 """
 from pathlib import Path
+import errno
+import unicodedata
 
-from fastapi import UploadFile
-from sqlalchemy import select
+from fastapi import UploadFile, HTTPException
+from sqlalchemy import select, update as sql_update
 
 from ...core.audit import audit
 from ...core.errors import bad_request, not_found
 from ...core.media import MediaError, inspect_media, save_upload
 from ...core.principal import Principal, owned_file, visible_files
-from ...models import File, Tag, now, uid
+from ...models import File, Tag, User, now, uid
+
+
+def normalize_folder(value: str) -> str:
+    parts = [part.strip() for part in value.replace("\\", "/").split("/") if part.strip()]
+    if len(parts) > 5 or any(p in {".", ".."} for p in parts):
+        raise bad_request("分类最多5级，且不能包含 . 或 ..")
+    result = "/" + "/".join(parts)
+    if len(result) > 255:
+        raise bad_request("分类路径过长")
+    return result
+
+
+def normalize_tags(values: list[str]) -> list[str]:
+    result = list(dict.fromkeys(v.strip() for v in values if v.strip()))
+    if len(result) > 20 or any(len(v) > 64 for v in result):
+        raise bad_request("最多20个标签，每个不超过64字符")
+    return result
+
+
+def safe_name(value: str) -> str:
+    name = value.replace("\\", "/").split("/")[-1].strip()
+    name = "".join(c for c in name if not unicodedata.category(c).startswith("C")).strip()
+    if not name or name in {".", ".."}:
+        raise bad_request("文件名不能为空")
+    suffix = Path(name).suffix[:20]
+    stem = (name[:-len(suffix)] if suffix else name).rstrip()
+    if not stem:
+        raise bad_request("文件名不能为空")
+    return stem[:255-len(suffix)].rstrip() + suffix
+
+
+def pdf_name(value: str) -> str:
+    return safe_name(value if value.lower().endswith(".pdf") else value + ".pdf")
+
+
+def lock_names(session, owner_id: str) -> None:
+    # A real UPDATE acquires SQLite's writer lock and a MySQL user-row lock.
+    # The lock is held by this transaction until commit/rollback, including other processes.
+    session.execute(sql_update(User).where(User.id == owner_id).values(token_version=User.token_version),
+                    execution_options={"synchronize_session": False})
+
+
+def available_name(session, owner_id: str, value: str, exclude_id: str | None = None) -> str:
+    name = safe_name(value)
+    query = select(File.name).where(File.owner_id == owner_id, File.deleted_at.is_(None))
+    if exclude_id:
+        query = query.where(File.id != exclude_id)
+    names = set(session.scalars(query))
+    suffix = Path(name).suffix
+    stem = name[:-len(suffix)] if suffix else name
+    index = 1
+    while name in names:
+        tail = f"({index}){suffix}"
+        name = stem[:255-len(tail)] + tail
+        index += 1
+    return name
 
 
 def _tags_of(session, owner_id: str, names: list[str]) -> list[Tag]:
     result = []
-    for raw in names:
+    for raw in normalize_tags(names):
         name = raw.strip()
         if not name or len(name) > 64:
             continue
@@ -34,6 +92,7 @@ def _tags_of(session, owner_id: str, names: list[str]) -> list[Tag]:
 
 
 def upload(session, settings, user: Principal, upload_file: UploadFile) -> File:
+    safe_name(upload_file.filename or "document")
     ident = uid()
     key = f"uploads/{ident}.bin"
     try:
@@ -41,15 +100,29 @@ def upload(session, settings, user: Principal, upload_file: UploadFile) -> File:
                                    max_upload_bytes=settings.max_upload_bytes)
         media_type, page_count = inspect_media(settings.storage_dir / key,
                                                max_pages=settings.max_pages, max_pixels=settings.max_pixels)
-    except MediaError as exc:
+    except (MediaError, OSError) as exc:
+        (settings.storage_dir / key).unlink(missing_ok=True)
+        if isinstance(exc, OSError):
+            if exc.errno == errno.ENOSPC:
+                raise HTTPException(507, "存储空间不足") from exc
+            raise
         raise bad_request(str(exc))
-    raw_name = (upload_file.filename or "document").replace("\\", "/").split("/")[-1][:255]
+    try:
+        lock_names(session, user.user_id)
+        raw_name = available_name(session, user.user_id, upload_file.filename or "document")
+    except Exception:
+        (settings.storage_dir / key).unlink(missing_ok=True)
+        raise
     record = File(id=ident, owner_id=user.user_id, name=raw_name, storage_key=key, media_type=media_type,
                   sha256=digest, size=size, page_count=page_count)
-    session.add(record)
-    session.flush()
-    audit(session, user.user_id, "file_uploaded", ident, bytes=size, pages=page_count)
-    _sync_ocr_file(session, record)
+    try:
+        session.add(record)
+        session.flush()
+        audit(session, user.user_id, "file_uploaded", ident, bytes=size, pages=page_count)
+        _sync_ocr_file(session, record)
+    except Exception:
+        (settings.storage_dir / key).unlink(missing_ok=True)
+        raise
     return record
 
 
@@ -84,9 +157,10 @@ def listing(session, user: Principal, *, folder: str | None, tag: str | None, q:
 def update(session, file_id: str, user: Principal, *, name=None, folder=None, tags=None) -> File:
     record = owned_file(session, file_id, user)
     if name is not None:
-        record.name = name.strip()[:255] or record.name
+        lock_names(session, record.owner_id)
+        record.name = available_name(session, record.owner_id, name, exclude_id=file_id)
     if folder is not None:
-        record.folder = folder.strip() or "/"
+        record.folder = normalize_folder(folder)
     if tags is not None:
         record.tags = _tags_of(session, record.owner_id, tags)
     audit(session, user.user_id, "file_updated", file_id)
@@ -108,7 +182,10 @@ def restore(session, file_id: str, user: Principal) -> File:
     record = session.scalar(statement)
     if record is None or (record.owner_id != user.user_id and not user.is_admin):
         raise not_found()
+    lock_names(session, record.owner_id)
+    record.name = available_name(session, record.owner_id, record.name, exclude_id=file_id)
     record.deleted_at = None
+    _sync_ocr_file(session, record)
     audit(session, user.user_id, "file_restored", file_id)
     return record
 

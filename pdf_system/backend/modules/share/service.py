@@ -4,7 +4,7 @@
 · 分享不复制文件实体，被分享者只读；owner 用 JWT 管理，被分享者凭 token 旁路访问。
 · 旁路访问走 core.principal.share_access，不改 resolve_principal 主路径。
 """
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -15,11 +15,24 @@ from ...models import File, ShareLink, now
 
 
 def create_share(session, user, *, file_id: str, expires_at: datetime | None,
-                 access_code: str | None, allow_download: bool) -> ShareLink:
+                 access_code: str | None, allow_download: bool, expires_in_days: int | None = None) -> ShareLink:
     # 只有文件所有者（或管理员）能为文件创建分享
     owned_file(session, file_id, user)
-    if expires_at is not None and expires_at <= now():
+    current = now()
+    if expires_in_days is not None or expires_at is None:
+        if expires_in_days is not None and expires_in_days not in {1, 7, 30}:
+            raise bad_request("有效期只允许1、7或30天")
+        expires_at = current + timedelta(days=expires_in_days or 7)
+    elif expires_at.tzinfo is None:
+        raise bad_request("绝对有效期必须包含时区Z或偏移")
+    elif expires_at.tzinfo is not None:
+        expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+    if expires_at <= current:
         raise bad_request("expires_at_must_be_future")
+    if expires_at > current + timedelta(days=30):
+        raise bad_request("分享有效期不得超过30天")
+    if access_code and (not access_code.isascii() or not access_code.isalnum() or len(access_code) > 32):
+        raise bad_request("提取码只允许1至32位字母和数字")
     link = ShareLink(file_id=file_id, owner_id=user.user_id, expires_at=expires_at,
                      access_code=access_code, allow_download=allow_download)
     session.add(link)

@@ -7,7 +7,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/architecture.md`](docs/architecture.md) | 系统架构与 48 个接口总表 |
+| [`docs/architecture.md`](docs/architecture.md) | 系统架构与 接口总表（数量以生成契约为准） |
 | [`docs/api-contract.yaml`](docs/api-contract.yaml) | API 契约（OpenAPI） |
 | [`docs/database-design.md`](docs/database-design.md) / [`docs/er-diagram.mmd`](docs/er-diagram.mmd) | 数据库设计与 E-R 图 |
 | [`docs/features.md`](docs/features.md) | 需求分析与功能点编号总表 |

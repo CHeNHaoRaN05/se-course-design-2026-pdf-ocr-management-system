@@ -18,6 +18,7 @@ from .modules.quota.router import router as quota_router
 from .modules.reader.router import router as reader_router
 from .modules.share.router import router as share_router
 from .modules.search.router import router as search_router
+from .modules.audit.router import router as audit_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("pdf_system")
@@ -53,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(reader_router, prefix=prefix)
     app.include_router(search_router, prefix=prefix)
     app.include_router(share_router, prefix=prefix)
+    app.include_router(audit_router, prefix=prefix)
     app.include_router(ocr_host_router, prefix=prefix)
 
     # 丙：挂载独立 OCR 模块（自带 /api/v1/ocr 路由）

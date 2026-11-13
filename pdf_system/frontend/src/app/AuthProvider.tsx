@@ -1,88 +1,176 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
-import { ApiError, api, tokenStore } from "../shared/http";
-
-interface Me {
-  id: string;
-  email: string;
-  display_name: string;
-  role: "user" | "viewer" | "admin";
-  created_at: string;
-}
+import {
+  publishLogout,
+  LOGOUT_EVENT,
+  clearLogoutNotice,
+} from "../shared/sessionEvents";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  ApiError,
+  api,
+  tokenStore,
+  TOKEN_KEY,
+  TOKEN_CHANGED,
+} from "../shared/http";
+import { errorText, type UserInfo } from "../features/management/management";
 
 interface AuthState {
   token: string;
-  me: Me | null;
+  me: UserInfo | null;
   ready: boolean;
+  error: string;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName: string) => Promise<void>;
-  logout: () => void;
+  register: (
+    email: string,
+    password: string,
+    displayName: string,
+  ) => Promise<void>;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
   adoptToken: (token: string) => void;
+  retry: () => void;
 }
-
 const AuthContext = createContext<AuthState | null>(null);
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState(tokenStore.get());
-  const [me, setMe] = useState<Me | null>(null);
+  const [token, setToken] = useState(tokenStore.get);
+  const [me, setMe] = useState<UserInfo | null>(null);
   const [ready, setReady] = useState(false);
-
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const refreshing = useRef<Promise<void> | null>(null);
   useEffect(() => {
+    const sync = () => setToken(tokenStore.get());
+    const storage = (event: StorageEvent) => {
+      if (event.key === TOKEN_KEY || event.key === null) {
+        setMe(null);
+        setReady(false);
+        sync();
+      }
+    };
+    const logoutLocal = () => {
+      tokenStore.clear();
+      setToken("");
+      setMe(null);
+    };
+    window.addEventListener(LOGOUT_EVENT, logoutLocal);
+    window.addEventListener(TOKEN_CHANGED, sync);
+    window.addEventListener("storage", storage);
+    return () => {
+      window.removeEventListener(LOGOUT_EVENT, logoutLocal);
+      window.removeEventListener(TOKEN_CHANGED, sync);
+      window.removeEventListener("storage", storage);
+    };
+  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    setError("");
+    setReady(false);
     if (!token) {
       setMe(null);
       setReady(true);
       return;
     }
-    api<Me>("/auth/me", {}, token)
-      .then(setMe)
-      .catch((error) => {
-        if (error instanceof ApiError && error.status === 401) {
-          tokenStore.clear();
-          setToken("");
+    void api<UserInfo>("/auth/me", { signal: controller.signal }, token)
+      .then((user) => {
+        if (!controller.signal.aborted) setMe(user);
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted) {
+          setMe(null);
+          setError(errorText(e));
         }
       })
-      .finally(() => setReady(true));
-  }, [token]);
-
-  const apply = useCallback(async (path: string, body: unknown) => {
-    const result = await api<{ access_token: string }>(path, { method: "POST", body: JSON.stringify(body) });
-    tokenStore.set(result.access_token);
-    setToken(result.access_token);
-  }, []);
-
-  const refresh = useCallback(async () => {
-    const result = await api<{ access_token: string }>("/auth/refresh", { method: "POST" });
-    tokenStore.set(result.access_token);
-    setToken(result.access_token);
-  }, []);
-
+      .finally(() => {
+        if (!controller.signal.aborted) setReady(true);
+      });
+    return () => controller.abort();
+  }, [token, revision]);
   const adoptToken = useCallback((value: string) => {
+    clearLogoutNotice();
     tokenStore.set(value);
     setToken(value);
   }, []);
-
-  const value = useMemo<AuthState>(() => ({
-    token,
-    me,
-    ready,
-    login: (email, password) => apply("/auth/login", { email, password }),
-    register: (email, password, display_name) => apply("/auth/register", { email, password, display_name }),
-    logout: () => {
-      api("/auth/logout", { method: "POST" }).catch(() => {});
-      tokenStore.clear();
-      setToken("");
-      setMe(null);
+  const apply = useCallback(
+    async (path: string, body: unknown) => {
+      const result = await api<{ access_token: string }>(
+        path,
+        { method: "POST", body: JSON.stringify(body) },
+        "",
+      );
+      adoptToken(result.access_token);
     },
-    refresh,
-    adoptToken,
-  }), [token, me, ready, apply, refresh, adoptToken]);
-
+    [adoptToken],
+  );
+  const refresh = useCallback(() => {
+    if (refreshing.current) return refreshing.current;
+    const current = tokenStore.get();
+    refreshing.current = api<{ access_token: string }>(
+      "/auth/refresh",
+      { method: "POST" },
+      current,
+    )
+      .then((result) => {
+        if (tokenStore.get() === current) adoptToken(result.access_token);
+      })
+      .finally(() => {
+        refreshing.current = null;
+      });
+    return refreshing.current;
+  }, [adoptToken]);
+  const logout = useCallback(async () => {
+    const current = tokenStore.get();
+    // 本地退出立即生效。远端吊销最多等待5秒；失败不能恢复本地会话。
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 5000);
+    const revoke = api(
+      "/auth/logout",
+      { method: "POST", signal: controller.signal },
+      current,
+    );
+    publishLogout("已在本机退出，正在确认服务端会话吊销。");
+    try {
+      await revoke;
+      publishLogout("已退出，服务端会话已吊销。", false);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        publishLogout("已退出，服务端会话已失效。", false);
+      else
+        publishLogout(
+          `已在本机退出；未确认服务端会话吊销（${error instanceof ApiError && error.status ? `服务返回${error.status}` : error instanceof Error && error.name === "AbortError" ? "确认超时" : "连接异常"}）。旧会话将在过期后失效。`,
+          false,
+        );
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }, []);
+  const value = useMemo<AuthState>(
+    () => ({
+      token,
+      me,
+      ready,
+      error,
+      login: (email, password) => apply("/auth/login", { email, password }),
+      register: (email, password, display_name) =>
+        apply("/auth/register", { email, password, display_name }),
+      logout,
+      refresh,
+      adoptToken,
+      retry: () => setRevision((n) => n + 1),
+    }),
+    [token, me, ready, error, apply, logout, refresh, adoptToken],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
-
 export function useAuth(): AuthState {
-  const value = useContext(AuthContext);
-  if (!value) throw new Error("useAuth 必须在 AuthProvider 内使用");
-  return value;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth 必须在 AuthProvider 内使用");
+  return context;
 }

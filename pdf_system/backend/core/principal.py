@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import select, update, or_
 
 from ..models import RevokedToken, ShareLink, User, now
 from .config import Settings
@@ -105,9 +105,15 @@ def share_access(token: str, session, code: str | None = None) -> ShareLink:
     link = session.scalar(select(ShareLink).where(ShareLink.token == token))
     if link is None:
         raise not_found()
-    if link.expires_at is not None and link.expires_at < now():
+    if link.expires_at is not None and link.expires_at <= now():
         raise not_found()
     if link.access_code is not None and link.access_code != (code or ""):
         raise not_found()
-    link.visit_count += 1
+    # Increment in SQL to avoid lost updates from concurrent readers.
+    changed = session.execute(update(ShareLink).where(ShareLink.id == link.id,
+        or_(ShareLink.expires_at.is_(None), ShareLink.expires_at > now())).values(
+        visit_count=ShareLink.visit_count + 1), execution_options={"synchronize_session": False})
+    if changed.rowcount != 1:
+        raise not_found()
+    session.refresh(link)
     return link

@@ -7,6 +7,7 @@ export interface FileItem {
   size: number;
   page_count: number;
   version: number;
+  replaced_from?: string | null;
   tags: string[];
   created_at: string;
 }

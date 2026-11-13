@@ -62,12 +62,18 @@ def file_jobs(file_id: str, request: Request, session: Session = Depends(get_ses
 
 @router.post("/jobs/{job_id}/settle", response_model=dict)
 def settle(job_id: str, request: Request, session: Session = Depends(get_session),
-           user: Principal = Depends(require_editor)):
+           user: Principal = Depends(current_user)):
     """任务终态后结算配额：成功页计费用，失败页退额度。幂等。"""
     _require_mounted(request)
     from ocr_service.db import Job, Page
 
-    job = session.get(Job, job_id)
+    # Serialize settlement for this job across threads/processes, including SQLite.
+    from sqlalchemy import update
+    statement = update(Job).where(Job.id == job_id)
+    if not user.is_admin:
+        statement = statement.where(Job.owner_id == user.user_id)
+    session.execute(statement.values(status=Job.status), execution_options={"synchronize_session": False})
+    job = session.get(Job, job_id, populate_existing=True)
     if job is None:
         raise not_found()
     if job.owner_id != user.user_id and not user.is_admin:

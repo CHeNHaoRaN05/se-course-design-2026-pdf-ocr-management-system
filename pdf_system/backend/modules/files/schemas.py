@@ -17,6 +17,7 @@ class FileOut(BaseModel):
     size: int
     page_count: int
     version: int
+    replaced_from: str | None = None
     tags: list[str] = Field(default_factory=list)
     created_at: datetime
 
@@ -33,3 +34,19 @@ class PageOut(BaseModel):
     width_pt: float
     height_pt: float
     rotation: int = 0
+
+
+class ManagedFileOut(FileOut):
+    status: str
+    generation: int | None
+
+
+class FileQueryOut(BaseModel):
+    items: list[ManagedFileOut]
+    total: int
+    status_available: bool
+    effective_sort: str
+
+
+class TrashOut(FileOut):
+    deleted_at: datetime

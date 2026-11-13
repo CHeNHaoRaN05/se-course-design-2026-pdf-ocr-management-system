@@ -6,7 +6,9 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <AppRoutes />
+        <div className="management-ui">
+          <AppRoutes />
+        </div>
       </BrowserRouter>
     </AuthProvider>
   );

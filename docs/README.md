@@ -7,7 +7,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`architecture.md`](architecture.md) | 系统架构：进程视图、48 个接口总表、模块调用关系、契约 C1–C5、数据流 |
+| [`architecture.md`](architecture.md) | 系统架构：进程视图、接口总表（数量以生成契约为准）、模块调用关系、契约 C1–C5、数据流 |
 | [`api-contract.yaml`](api-contract.yaml) | API 契约（OpenAPI 3.0 骨架，与 architecture.md 第 3 节对应） |
 | [`database-design.md`](database-design.md) | 数据库设计：14 张表、约束、容量与保留策略 |
 | [`er-diagram.mmd`](er-diagram.mmd) | 全局 E-R 图（Mermaid，GitHub 可直接渲染） |
@@ -26,6 +26,12 @@
 
 ## 其他交付物
 
-- [`需求分析文档.docx`](../需求分析文档.docx) — 课程需求分析阶段 Word 正稿（本目录 `features.md` 是其大纲）
+- [`需求分析文档.docx`](需求分析文档.docx) — 课程需求分析阶段 Word 正稿（本目录 `features.md` 是其大纲）
 - [`pdf_system/docs/`](../pdf_system/docs/) — 主系统详细设计、数据库设计、契约 C1–C5 原文
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — 协作流程
+
+## 复测修复与验证
+
+当前本地完整OpenAPI从实际FastAPI装配生成（59条路径、68个HTTP操作，含OCR轻量API），不手工维护接口计数。运行 `cd pdf_system && python -m backend.scripts.export_contract --check` 检查一致性。参数、响应模型与权限标记见 [api-contract.yaml](api-contract.yaml)。
+
+[2026-11-13复测处理](reviews/02-retest-resolution.md) · [复测契约增量](reviews/02-retest-contract.md)。此前提交613be22已经推送；本次后续修复的推送/验证状态见新处理记录，历史文档不可作为当前状态。
