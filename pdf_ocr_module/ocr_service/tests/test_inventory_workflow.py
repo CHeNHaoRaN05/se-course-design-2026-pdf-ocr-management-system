@@ -98,7 +98,10 @@ def test_unavailable_engine_can_recover_after_manual_retry(service):
     worker.run_once()
     assert service.client.get(f"{API}/jobs/{task}").json()["status"] == "failed"
     engine.unavailable = False
-    assert service.client.post(f"{API}/jobs/{task}/retry").status_code == 202
+    retry = service.client.post(f"{API}/jobs/{task}/retry")
+    assert retry.status_code == 202
+    assert retry.json()["id"] != task
+    task = retry.json()["id"]
     worker.run_once()
     assert service.client.get(f"{API}/jobs/{task}").json()["status"] == "succeeded"
 
@@ -145,12 +148,12 @@ def test_reviewed_spreadsheet_values_are_literal(service):
     Worker(service.config, service.sessions, InventoryEngine()).run_once()
     page = service.client.get(f"{API}/jobs/{task}/pages/1").json()
     blocks = page["result"]["blocks"]
-    blocks[0]["text"] = '\x00=HYPERLINK("https://example.invalid")'
+    blocks[0]["text"] = '=HYPERLINK("https://example.invalid")'
     assert service.client.patch(f"{API}/jobs/{task}/pages/1", json={"expected_revision": 1, "blocks": blocks}).status_code == 200
     exported = service.client.get(f"{API}/jobs/{task}/export?format=xlsx")
     book = load_workbook(io.BytesIO(exported.content))
     assert book["OCR文本"]["C2"].data_type == "s"
-    assert book["OCR文本"]["C2"].value.startswith("'=")
+    assert book["OCR文本"]["C2"].value == blocks[0]["text"]
 
 
 def test_inventory_grid_coordinates():

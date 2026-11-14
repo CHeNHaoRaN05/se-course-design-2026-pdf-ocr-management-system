@@ -37,6 +37,8 @@ def verify_password(plain: str, stored: str) -> bool:
 def create_access_token(*, user_id: str, role: str, secret: str, issuer: str, audience: str,
                         expire_minutes: int, jti: str | None = None,
                         token_version: int | None = None) -> str:
+    if expire_minutes <= 0:
+        raise ValueError("expire_minutes must be positive")
     issued = datetime.now(timezone.utc)
     claims = {
         "sub": user_id,
@@ -54,5 +56,9 @@ def create_access_token(*, user_id: str, role: str, secret: str, issuer: str, au
 
 
 def decode_token(token: str, *, secret: str, issuer: str, audience: str) -> dict:
-    return jwt.decode(token, secret, algorithms=["HS256"], issuer=issuer, audience=audience,
-                      options={"require": ["sub", "exp", "iat", "iss", "aud"]})
+    claims = jwt.decode(token, secret, algorithms=["HS256"], issuer=issuer, audience=audience,
+                      options={"require": ["sub", "exp", "iat", "iss", "aud", "jti", "tv"]})
+
+    if not isinstance(claims["jti"], str) or not claims["jti"] or type(claims["tv"]) is not int or claims["tv"] < 0:
+        raise jwt.InvalidTokenError("Invalid jti/tv claims")
+    return claims

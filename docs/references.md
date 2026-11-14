@@ -16,7 +16,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`architecture.md`](architecture.md) | 接口总表与调用关系（48 个接口） |
+| [`architecture.md`](architecture.md) | 接口总表与调用关系（实时清单见 route-inventory.md） |
 | [`api-contract.yaml`](api-contract.yaml) | API 契约（OpenAPI 骨架） |
 | [`database-design.md`](database-design.md) / [`er-diagram.mmd`](er-diagram.mmd) | 数据库设计与 E-R 图 |
 | [`features.md`](features.md) | 需求分析与功能点编号总表 |

@@ -6,7 +6,7 @@
 """
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from ...core.database import get_session
@@ -19,13 +19,16 @@ router = APIRouter(prefix="/search", tags=["03 OCR 与检索·丙"])
 
 @router.get("", response_model=dict)
 @router.get("/", response_model=dict, include_in_schema=False)
-def full_text(q: str = Query(min_length=1, max_length=100), limit: int = Query(20, ge=1, le=100),
-              offset: int = Query(0, ge=0),
+def full_text(request: Request, q: str = Query(min_length=1, max_length=100), limit: int = Query(20, ge=1, le=100),
+              offset: int = Query(0, ge=0, le=10000),
               file_id: str | None = Query(None, pattern=r"^[0-9a-f]{32}$"),
               tag: str | None = Query(None, min_length=1, max_length=64),
               date_from: date | None = None, date_to: date | None = None,
               session: Session = Depends(get_session),
               user: Principal = Depends(current_user)):
+    allowed = {"q", "limit", "offset", "file_id", "tag", "date_from", "date_to"}
+    if set(request.query_params) - allowed:
+        raise bad_request("不支持的检索参数；排序固定为更新时间倒序，匹配为字面子串")
     keyword = q.strip()
     if not keyword:
         raise bad_request("检索词不能为空")
@@ -44,4 +47,6 @@ def full_text(q: str = Query(min_length=1, max_length=100), limit: int = Query(2
 @router.get("/suggest", response_model=dict)
 def suggest(q: str = Query(min_length=1, max_length=100), session: Session = Depends(get_session),
             user: Principal = Depends(current_user)):
+    if not q.strip():
+        raise bad_request("检索词不能为空")
     return {"items": suggest_files(session, user, q.strip())}

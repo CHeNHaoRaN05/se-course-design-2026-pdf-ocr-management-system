@@ -5,6 +5,8 @@ W7 待补（小组成员自行认领）：合并 / 拆分 / 批量操作，见 R
 from fastapi import APIRouter, Depends, File as UploadField, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import select
+from ...models import File as FileModel
 
 from ...core.database import get_session
 from ...core.media import MediaError, safe_path
@@ -45,6 +47,16 @@ def list_folders(session: Session = Depends(get_session), user: Principal = Depe
 @router.get("/tags", response_model=list[str])
 def list_tags(session: Session = Depends(get_session), user: Principal = Depends(current_user)):
     return tags(session, user)
+
+
+@router.get("/trash", response_model=list[FileOut])
+def trash_list(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=10000),
+               session: Session = Depends(get_session), user: Principal = Depends(current_user)):
+    query = select(FileModel).where(FileModel.deleted_at.is_not(None))
+    if not user.is_admin:
+        query = query.where(FileModel.owner_id == user.user_id)
+    return [view(row) for row in session.scalars(query.order_by(FileModel.deleted_at.desc(), FileModel.id)
+                                                .limit(limit).offset(offset)).unique()]
 
 
 @router.get("/{file_id}", response_model=FileOut)

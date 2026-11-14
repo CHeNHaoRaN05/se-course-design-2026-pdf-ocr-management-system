@@ -6,6 +6,8 @@
 
 ## 启动
 
+生产只支持主系统挂载 API，独立 worker 继续使用同库同存储。下面的独立 API/token 是隔离开发工具，需显式 OCR_DEVELOPMENT_MODE=1 和独立开发密钥，audience 固定为 ocr-development-only，不能用于主系统登录。
+
 在包含 ocr_service 文件夹的目录打开 PowerShell：
 
 ```powershell
@@ -20,7 +22,7 @@
 
 打开 http://127.0.0.1:8000/docs，在 Authorize 中填入令牌，依次调用上传、建任务、查询结果和导出接口。
 
-脚本使用 .venv-paddle 环境，在 ocr_data/local-dev.key 创建本机随机开发密钥。生产部署设置 OCR_JWT_SECRET，由登录模块签发令牌。
+脚本使用 .venv-paddle 环境，在 ocr_data/local-dev.key 创建本机随机开发密钥。生产 API 使用宿主配置与主登录接口；禁止暴露独立开发 API。
 
 ## 从源码包安装
 
@@ -33,7 +35,7 @@ py -3.12 -m venv .venv-paddle
 .\ocr_service\run.ps1 init
 ```
 
-源码包不含模型二进制、数据库、密钥或缓存。download-models 从官方地址下载标准 Paddle 模型，并验证 models/manifest.json 中的 SHA256。当前工作区的标准模型已就绪。依赖锁定文件覆盖 CPU 推理、API 与测试工具；GPU 环境尚未验证。
+源码包不含模型二进制、数据库、密钥或缓存。download-models 从官方地址下载标准 Paddle 模型，并验证 models/manifest.json 中的 SHA256。仓库不含权重；是否就绪须以本机 SHA256 校验及真实推理为准。依赖锁定文件覆盖 CPU 推理、API 与测试工具；GPU 环境尚未验证。
 
 ## 配置
 
@@ -49,11 +51,11 @@ py -3.12 -m venv .venv-paddle
 | OCR_TORCH_PYTHON | 可选检测进程的 Python 可执行文件 |
 | OCR_DEVICE | 默认 cpu |
 
-专用手写检测和自定义识别模型未配置时，对应能力不开放；capabilities 返回实际配置情况。默认文件上限 20 MiB、100 页、单页 2000 万像素；其他参数用 Settings 注入。
+专用手写检测和自定义识别模型未配置时，对应能力不开放；capabilities 返回实际配置情况。默认文件上限 20 MiB、100 页、单页 2000 万像素；上限及 lease_seconds / max_attempts / retry_delay_seconds 支持对应 OCR_* 环境变量；宿主上传上限与 JWT issuer/audience 显式注入。
 
 MySQL 需要 8+、InnoDB 和 utf8mb4。创建数据库、设置专用应用账号与 OCR_DATABASE_URL 后运行 init-db；也可在空库执行 docs/mysql-schema.sql。初始化不会迁移已有表结构。
 
-pdf_text_index 使用 ngram 全文索引；MySQL 长度至少为 2 的查询走 MATCH AGAINST。单字符查询及 SQLite 开发库走子串匹配。生产 MySQL 与多 worker 行为需部署环境联调。
+pdf_text_index 使用 ngram 全文索引；MySQL 长度至少为 2 的查询走 MATCH AGAINST。单字符查询及 SQLite 开发库走子串匹配。MySQL 8 实库回归覆盖心跳、SKIP LOCKED、ngram 和并发结算；部署负载与真实模型仍须独立验收。
 
 ## 测试与交付包
 

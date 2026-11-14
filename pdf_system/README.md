@@ -1,6 +1,8 @@
+> 2026-11-14 校订：当前 03 线状态及测试证据见仓库 `docs/line03-review-20261114.md`，接口清单见 `docs/route-inventory.md`；下文旧里程碑和历史测试数字不代表当前验收。
+
 # PDF 文件显示与管理系统
 
-基于本地 OCR 的 PDF 文件显示与管理系统。后端 FastAPI + MySQL 单体，前端 React + pdf.js，
+基于本地 OCR 的 PDF 文件显示与管理系统。后端 FastAPI + SQLAlchemy（默认 SQLite，生产 MySQL） 单体，前端 React + pdf.js，
 OCR 能力来自同仓库外的独立模块 `../pdf_ocr_module/ocr_service`（PaddleOCR 本地推理）。
 
 三人纵向分工：**01 用户与权限（甲）／02 文件管理与阅读器（乙）／03 OCR 与检索（丙）**。
@@ -22,7 +24,7 @@ OCR 能力来自同仓库外的独立模块 `../pdf_ocr_module/ocr_service`（Pa
 | 前端 | ❌ 本机无 Node，**未实测**；需 `npm install && npm run dev` |
 
 已固化到 `backend/tests/`：`test_main_flow.py`（甲+乙 13 项）、`test_ocr_contract.py`（丙 5 项，覆盖 C1/C2/C3/C5）。
-OCR 测试在未装 `cv2` 的机器上会自动 skip，主系统测试不受影响。
+OCR 契约测试要求轻量依赖及挂载成功；缺失会失败。真实 MySQL 和 Paddle 测试分别由 MYSQL_TEST_URL、RUN_REAL_OCR 显式启用。
 
 ## 一、启动
 
@@ -42,7 +44,7 @@ python -m pytest backend/tests -q                     # 18 项，应全绿
 > Python 3.14 上 `requirements.txt` 的锁版本装不上（`pydantic-core` 无 cp314 wheel，需 Rust），
 > 请改用文件末尾「Python 3.14 可用版本」那一段。
 
-打开 http://127.0.0.1:8000/docs 查看接口（OCR 的 15 个接口在 `/api/v1/ocr` 分组下）。
+打开 http://127.0.0.1:8000/docs 查看接口（OCR 接口（以生成清单为准）在 `/api/v1/ocr` 分组下）。
 
 ### 2. OCR Worker（独立环境，负责人：丙）
 

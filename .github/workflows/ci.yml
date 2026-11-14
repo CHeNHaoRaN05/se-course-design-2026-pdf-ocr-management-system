@@ -8,6 +8,19 @@ on:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-test-only
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pci-test-only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
     defaults:
       run:
         working-directory: pdf_system
@@ -33,6 +46,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: ../pdf_ocr_module
+          MYSQL_TEST_URL: mysql+pymysql://root:ci-test-only@127.0.0.1:3306/mysql?charset=utf8mb4
           OCR_TEST_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
         run: python -m pytest backend/tests ../pdf_ocr_module/ocr_service/tests -q
 

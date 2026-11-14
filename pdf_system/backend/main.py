@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from .core.config import Settings, get_settings, validate
 from .core.database import build_engine, build_session_factory
+from .modules.audit.router import router as audit_router
 from .modules.auth.router import router as auth_router
 from .modules.files.router import router as files_router
 from .modules.ocr.mount import mount_ocr
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     prefix = settings.api_prefix
     app.include_router(auth_router, prefix=prefix)
+    app.include_router(audit_router, prefix=prefix)
     app.include_router(quota_router, prefix=prefix)
     app.include_router(files_router, prefix=prefix)
     app.include_router(reader_router, prefix=prefix)
