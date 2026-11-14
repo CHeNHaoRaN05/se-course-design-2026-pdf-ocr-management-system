@@ -7,7 +7,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`architecture.md`](architecture.md) | 系统架构：进程视图、48 个接口总表、模块调用关系、契约 C1–C5、数据流 |
+| [`architecture.md`](architecture.md) | 系统架构：进程视图、接口总表、模块调用关系、契约 C1–C5、数据流 |
 | [`api-contract.yaml`](api-contract.yaml) | API 契约（OpenAPI 3.0 骨架，与 architecture.md 第 3 节对应） |
 | [`database-design.md`](database-design.md) | 数据库设计：14 张表、约束、容量与保留策略 |
 | [`er-diagram.mmd`](er-diagram.mmd) | 全局 E-R 图（Mermaid，GitHub 可直接渲染） |

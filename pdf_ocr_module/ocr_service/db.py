@@ -91,10 +91,7 @@ class Audit(Base):
 
 def database(settings):
     settings.storage.mkdir(parents=True, exist_ok=True)
-    # Default URL is resolved against module workspace rather than caller cwd.
     url = settings.database_url
-    if url == "sqlite:///./ocr_data/dev.sqlite3":
-        url = "sqlite:///" + (settings.storage / "dev.sqlite3").as_posix()
     kwargs = {"connect_args": {"check_same_thread": False, "timeout": 30}} if url.startswith("sqlite:") else {"pool_pre_ping": True}
     engine = create_engine(url, **kwargs)
     return engine, sessionmaker(engine, expire_on_commit=False)

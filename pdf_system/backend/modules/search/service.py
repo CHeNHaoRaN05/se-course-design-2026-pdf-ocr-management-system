@@ -53,11 +53,12 @@ def search(session, user: Principal, q: str, *, limit: int, offset: int,
     if date_to:
         base += " AND f.created_at < :date_before"
         params["date_before"] = datetime.combine(date_to + timedelta(days=1), time.min)
-    base += f" AND ({_mysql_match() if use_fulltext else 't.content LIKE :like ESCAPE :esc'})"
-    if not use_fulltext:
-        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        params["like"] = f"%{escaped}%"
-        params["esc"] = "\\"
+    if use_fulltext:
+        base += f" AND ({_mysql_match()})"
+    # Exact substring semantics on both engines; binary MySQL matching prevents
+    # collation-only hits for which Python cannot find a relevant snippet.
+    base += (" AND LOCATE(CAST(:q AS BINARY), CAST(t.content AS BINARY)) > 0"
+             if dialect == "mysql" else " AND instr(t.content, :q) > 0")
     base += " ORDER BY t.updated_at DESC, t.id LIMIT :limit OFFSET :offset"
 
     statement = text(base)
@@ -79,6 +80,9 @@ def search(session, user: Principal, q: str, *, limit: int, offset: int,
 
 def suggest_files(session, user: Principal, q: str, limit: int = 10) -> list[dict]:
     """文件名补全，与全文检索互补。"""
+    q = q.strip()
+    if not q:
+        return []
     statement = select(File.id, File.name).where(File.deleted_at.is_(None),
                                                  File.name.contains(q, autoescape=True))
     if not user.is_admin:

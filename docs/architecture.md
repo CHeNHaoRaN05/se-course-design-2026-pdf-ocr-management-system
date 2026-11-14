@@ -1,3 +1,5 @@
+> 2026-11-14 校订：当前 03 线状态及测试证据见仓库 `docs/line03-review-20261114.md`，接口清单见 `docs/route-inventory.md`；下文旧里程碑和历史测试数字不代表当前验收。
+
 # 架构概览：接口总表与调用关系
 
 > 项目：基于本地 OCR 的 PDF 文件显示与管理系统
@@ -24,7 +26,7 @@
 
 ```
 浏览器 ──5173──> Vite dev server ──/api 代理──> 主系统 FastAPI (8000)
-                                                  ├─ 主系统 31 个接口（含 /health 与 5 个 ocr-host）
+                                                  ├─ 主系统接口（含 /health 与 5 个 ocr-host）
                                                   └─ OCR 模块 17 个接口（同进程挂载）
                                                        │
                                                   共享数据库 + 共享存储目录
@@ -63,7 +65,7 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 ## 3. 接口总表
 
-共 **59 个接口**（主系统 42 + OCR 模块 17）：
+当前接口数量与路径由应用 OpenAPI 生成，见 `docs/route-inventory.md`。
 
 | 归属 | 数量 | 小节 |
 |---|---|---|
@@ -293,7 +295,7 @@ worker 与主系统**只通过数据库通信**，没有任何 RPC。
 
 > ⚠️ 已知阻塞缺陷：`ocr_service/queue.py` 的 `locked_job` 与 `api.py:223` 的 `correct`
 > 依赖「把字段更新成原值」的 `rowcount`，而 **MySQL 只统计真正变化的行**。
-> 后果：worker 无法提交结果、校对恒 409。归黄，**优先级 P0**，不修则整条链路在 MySQL 下跑不通。
+> 历史风险已在 2026-11-14 修复并完成 MySQL 实库回归；不要将 no-op rowcount 一概等同于失败。
 
 ---
 
@@ -385,8 +387,8 @@ JID=$(echo "$JOB" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
 
 ```bash
 cd pdf_ocr_module
-export OCR_DATABASE_URL="sqlite:///C:/Users/Administrator/Desktop/se_course_design/pdf_system/data/dev.sqlite3"
-export OCR_STORAGE="C:/Users/Administrator/Desktop/se_course_design/pdf_system/data/storage"
+export OCR_DATABASE_URL="sqlite:///C:/path/to/se_course_design/pdf_system/data/dev.sqlite3"
+export OCR_STORAGE="C:/path/to/se_course_design/pdf_system/data/storage"
 export OCR_JWT_SECRET="$(grep '^PDF_JWT_SECRET=' ../pdf_system/.env | cut -d= -f2-)"
 export OCR_DEVICE=cpu
 "D:/miniconda3/envs/ocrpaddle/python.exe" -m ocr_service worker

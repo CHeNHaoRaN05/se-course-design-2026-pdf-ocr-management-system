@@ -1,3 +1,5 @@
+> 2026-11-14 校订：当前 03 线状态及测试证据见仓库 `docs/line03-review-20261114.md`，接口清单见 `docs/route-inventory.md`；下文旧里程碑和历史测试数字不代表当前验收。
+
 # 后端开发指南（各线详细分工与跨线接口）
 
 > 配套文档：[`../architecture.md`](../architecture.md)（接口总表与调用关系）、[`../api-contract.yaml`](../api-contract.yaml)（接口契约）、[`database.md`](database.md)（表清单与 schema 冻结）、[`../development-baseline.md`](../development-baseline.md)（公共限制）
@@ -67,7 +69,7 @@
 **编号区间**：`FR-OCR-*`（2.5）、`FR-COR-*`（2.6）、`FR-TBL-*`（2.7）、`FR-EXP-*`（2.8）、`FR-SEA-*`（2.9）
 
 ### 已实现
-- `pdf_ocr_module/ocr_service` 引擎 1313 行，自带 15 个接口（识别、校对、表格、5 种导出、检索）
+- `pdf_ocr_module/ocr_service` 引擎 1313 行，自带 OCR 接口（识别、校对、表格、5 种导出、检索）
 - 主系统适配层 `modules/ocr/{mount,bridge,quota,lifecycle,router}` 约 320 行
 - `modules/search` 检索服务
 
@@ -75,9 +77,9 @@
 
 | 编号 | 任务 | 位置 | 状态 |
 |---|---|---|---|
-| **P0** | **修 MySQL no-op UPDATE 缺陷** | `ocr_service/queue.py` 的 `locked_job` 与 `api.py:223` 的 `correct` 依赖「把字段更新成原值」的 `rowcount`；MySQL 只统计真正变化的行 → worker 无法提交结果、校对恒 409 | **阻塞全组，必须最先做** |
-| FR-SEA-04 | 检索过滤（按文件 / 时间 / 标签） | `search/router.py`、`SearchPage.tsx`（58 行） | 未开工 |
-| FR-SEA-05 | 检索历史 | 同上 | 未开工 |
+| P0 | 03 黄 | 租约与锁定不依赖 no-op rowcount | 已修复；MySQL 8.0.40 关闭 FOUND_ROWS 验证通过 |
+| FR-SEA-04 | 检索过滤（按文件 / 时间 / 标签） | `search/router.py`、`SearchPage.tsx`（58 行） | 已实现并有回归测试 |
+| FR-SEA-05 | 检索历史 | 同上 | 已实现并有回归测试 |
 | FR-OCR-09 | 准确率评测集（200 页标注） | 需自建标注集 + 评测脚本 | W8 |
 | FR-OCR-10 | 手写模式（可选） | `yolo_runner.py` 已留口，需专用 YOLO 权重 | 可选 |
 

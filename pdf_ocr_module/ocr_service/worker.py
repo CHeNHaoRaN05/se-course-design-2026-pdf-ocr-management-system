@@ -39,7 +39,11 @@ class Worker:
         try:
             with self.sessions() as session:
                 job = session.get(Job, job_id)
+                if job is None:
+                    return False
                 file = session.get(File, job.file_id)
+                if file is None:
+                    return False
                 page_numbers = session.scalars(select(Page.page_no).where(Page.job_id == job_id, Page.status != "succeeded").order_by(Page.page_no)).all()
             for page_no in page_numbers:
                 if lost.is_set() or not heartbeat(self.sessions, self.cfg, job_id, token):

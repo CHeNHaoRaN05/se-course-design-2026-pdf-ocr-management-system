@@ -20,7 +20,7 @@ def main():
     directory = PACKAGE_ROOT / ".verification" / uid()
     directory.mkdir(parents=True)
     cfg = Settings(storage=directory, database_url="sqlite:///" + (directory / "service.sqlite3").as_posix(),
-                   jwt_secret=secrets.token_hex(32))
+                   jwt_secret=secrets.token_hex(32), development_mode=True, jwt_audience="ocr-development-only")
     engine, _ = database(cfg)
     Base.metadata.create_all(engine)
     engine.dispose()
@@ -28,7 +28,7 @@ def main():
         binding.bind(("127.0.0.1", 0))
         port = binding.getsockname()[1]
     env = dict(os.environ, OCR_STORAGE=str(directory), OCR_DATABASE_URL=cfg.database_url, OCR_JWT_SECRET=cfg.jwt_secret,
-               OCR_HANDWRITING_WEIGHTS="", OCR_CUSTOM_REC_WEIGHTS="")
+               OCR_HANDWRITING_WEIGHTS="", OCR_CUSTOM_REC_WEIGHTS="", OCR_DEVELOPMENT_MODE="1", OCR_JWT_AUDIENCE="ocr-development-only")
     records = []
     with (directory / "server.log").open("wb") as log:
         server = subprocess.Popen([sys.executable, "-m", "uvicorn", "ocr_service.api:create_app", "--factory",

@@ -32,7 +32,8 @@ def test_failed_page_new_job_retry_has_independent_quota(env):
     lease = claim(app.state.ocr_sessions, cfg)
     assert save_page(app.state.ocr_sessions, *lease, 2, result={"text": "第二页重试成功"})
     complete_attempt(app.state.ocr_sessions, cfg, *lease)
-    assert client.post(f"/api/v1/ocr-host/jobs/{retry}/settle").json()["settled"]
+    # Worker already settled; explicit client compensation is an idempotent no-op.
+    assert not client.post(f"/api/v1/ocr-host/jobs/{retry}/settle").json()["settled"]
     assert not client.post(f"/api/v1/ocr-host/jobs/{retry}/settle").json()["settled"]
     usage = client.get("/api/v1/quota").json()
     assert usage["pages_reserved"] == 0 and usage["pages_used"] == 2

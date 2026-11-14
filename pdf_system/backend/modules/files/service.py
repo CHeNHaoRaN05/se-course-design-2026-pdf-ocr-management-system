@@ -120,7 +120,9 @@ def purge(session, settings, file_id: str, user: Principal) -> None:
     if record is None or (record.owner_id != user.user_id and not user.is_admin):
         raise not_found()
     _purge_ocr(session, settings, file_id)
-    Path(settings.storage_dir / record.storage_key).unlink(missing_ok=True)
+    from ...core.media import safe_path
+    from ...core.file_cleanup import after_commit_remove
+    after_commit_remove(session, safe_path(settings.storage_dir, record.storage_key))
     session.delete(record)
     audit(session, user.user_id, "file_purged", file_id)
 
