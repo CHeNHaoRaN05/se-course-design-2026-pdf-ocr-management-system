@@ -296,6 +296,95 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
       x-permission: admin
+  /api/v1/audit:
+    get:
+      tags:
+      - 01 审计查询
+      summary: Listing
+      operationId: listing_api_v1_audit_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: envelope
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Envelope
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Actor Id
+      - name: action
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Action
+      - name: date_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date From
+      - name: date_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date To
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/PageResult_AuditOut_'
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/AuditOut'
+                title: Response Listing Api V1 Audit Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-permission: admin
   /api/v1/quota/:
     get:
       tags:
@@ -1225,7 +1314,7 @@ paths:
         required: false
         schema:
           type: integer
-          maximum: 1000000
+          maximum: 10000
           minimum: 0
           default: 0
           title: Offset
@@ -1510,95 +1599,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
       x-permission: public
-  /api/v1/audit:
-    get:
-      tags:
-      - 01 审计查询
-      summary: Listing
-      operationId: listing_api_v1_audit_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: envelope
-        in: query
-        required: false
-        schema:
-          type: boolean
-          default: false
-          title: Envelope
-      - name: actor_id
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-            maxLength: 128
-          - type: 'null'
-          title: Actor Id
-      - name: action
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-            maxLength: 40
-          - type: 'null'
-          title: Action
-      - name: date_from
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-            format: date
-          - type: 'null'
-          title: Date From
-      - name: date_to
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-            format: date
-          - type: 'null'
-          title: Date To
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          maximum: 100
-          minimum: 1
-          default: 20
-          title: Limit
-      - name: offset
-        in: query
-        required: false
-        schema:
-          type: integer
-          maximum: 1000000
-          minimum: 0
-          default: 0
-          title: Offset
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                anyOf:
-                - $ref: '#/components/schemas/PageResult_AuditOut_'
-                - type: array
-                  items:
-                    $ref: '#/components/schemas/AuditOut'
-                title: Response Listing Api V1 Audit Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      x-permission: admin
   /api/v1/ocr-host/capabilities:
     get:
       tags:
@@ -1881,6 +1881,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 10000
           minimum: 0
           default: 0
           title: Offset
@@ -2226,6 +2227,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 10000
           minimum: 0
           default: 0
           title: Offset
@@ -2281,6 +2283,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 10000
           minimum: 0
           default: 0
           title: Offset
