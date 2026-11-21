@@ -16,7 +16,7 @@ main                    受保护，永远处于可演示状态
 ├── feat/01-admin-role  陈
 ├── feat/02-merge       岳
 ├── feat/02-bulk        岳
-├── feat/03-correct     黄
+├── feat/03-ocr         黄
 └── fix/<线号>-<问题>    谁发现谁修
 ```
 
@@ -40,7 +40,7 @@ main                    受保护，永远处于可演示状态
 
 ## 三、共享物所有权（防扯皮核心）
 
-三个共享物：**`backend/core/`、`backend/models/`、`docs/contracts/`**。
+三个共享物：**`backend/core/`、`backend/models/`、`pdf_system/docs/contracts/`**。
 
 ### 3.1 `backend/core/`（陈维护）
 
@@ -97,17 +97,17 @@ from .base import Base, now, uid
 
 ## 四、契约变更规则
 
-`docs/contracts/C1–C5` 是三人的接口合同，对应三个跨线调用：
+`pdf_system/docs/contracts/C1–C5` 是三人的接口合同（C1 JWT、C2 文件镜像、C3 按页记账、C4 覆盖层坐标、C5 删除清理），其中三个跨线调用：
 
 | 契约 | 调用 |
 |---|---|
 | C2 | files（岳）→ `ocr.bridge.ensure_ocr_file()`（黄） |
-| C3 | ocr（黄）→ `quota.reserve()`（陈） |
+| C3 | ocr（黄）→ `quota.reserve()`（陈，仅 OCR 内部按页记账，无用户可见配额） |
 | C5 | files（岳）→ `ocr.lifecycle.cancel_tasks() / purge_file()`（黄） |
 
 **铁律：先改文档，再改代码。**
 
-1. 改 `docs/contracts/C*.md` → 单独开 PR
+1. 改 `pdf_system/docs/contracts/C*.md` → 单独开 PR
 2. 其余两人确认
 3. 再动代码
 
@@ -130,13 +130,13 @@ from .base import Base, now, uid
 ```
 schema 定稿（陈）
       ↓
-quota（陈）  ←── ocr（黄）依赖它
+quota（陈，仅内部记账）  ←── ocr（黄）依赖它
       ↓
 ocr（黄）    ←── files（岳）依赖它
       ↓
 files（岳）
       ↓
-share / admin-role（陈）、merge / bulk（岳）、correct（黄）
+share / admin-role（陈）、merge / bulk（岳）
       ↑
    独立功能，并行无依赖
 ```

@@ -28,14 +28,16 @@
 | 表 | 主责 | 字段 | 被谁读 / 写 |
 |---|---|---|---|
 | `users` | 陈 | id, email, display_name, password_hash, **role**(user/viewer/admin), **disabled**, login_count, created_at, last_login_at | 黄：`resolve_principal` 校验 `disabled`；陈 |
-| `files` | 岳 | id, **owner_id**, name, folder, **storage_key**, **media_type**, **sha256**, size, **page_count**, version, replaced_from, **deleted_at**, created_at | **黄镜像其中 8 个字段**；陈：`search`/`owned_file`/`visible_files` |
+| `files` | 岳 | id, **owner_id**, name, folder（目录路径，仅为字符串，非自引用分类树）, **storage_key**, **media_type**, **sha256**, size, **page_count**, **deleted_at**, created_at | **黄镜像其中 8 个字段**；陈：`search`/`owned_file`/`visible_files` |
 | `tags` | 岳 | id, owner_id, name | 岳 |
 | `file_tags` | 岳 | file_id, tag_id（多对多关联表） | 岳 |
 | `bookmarks` | 岳 | id, file_id→files.id, owner_id, page_no, title, created_at | 岳 |
 | `annotations` | 岳 | id, file_id→files.id, owner_id, page_no, kind, **payload(JSON)**, created_at, updated_at | 岳；**payload 坐标口径须与 OCR bbox 一致（C4）** |
-| `quota_accounts` | 陈 | user_id + month（复合主键）, **pages_reserved**, **pages_used**, updated_at | **黄写**（经 reserve/settle/release） |
-| `quota_ledger` | 陈 | id, user_id, month, **pages**（正=占用，负=退还）, reason, **ref_id**, created_at | **黄写** |
-| `audit_logs` | 陈 | id, actor_id, action, resource_id, detail(JSON), created_at | 全员写 |
+| `quota_accounts` | 陈 | user_id + month（复合主键）, **pages_reserved**, **pages_used**, updated_at | **黄写**（经 reserve/settle/release）；仅 OCR 内部按页记账，无用户看板（范围外，见 `../features.md` 1.2） |
+| `quota_ledger` | 陈 | id, user_id, month, **pages**（正=占用，负=退还）, reason, **ref_id**, created_at | **黄写**；仅 OCR 内部按页记账 |
+| `audit_logs` | 陈 | id, actor_id, action, resource_id, detail(JSON), created_at | 全员写；保留通用表，180 天保留作业范围外 |
+| `share_links` | 陈 | id, file_id→files.id, owner_id, token, expires_at, access_code, allow_download, visit_count, created_at | 陈（分享链接，已实现） |
+| `revoked_tokens` | 陈 | jti, user_id, expires_at, revoked_at | 陈（JWT 吊销名单） |
 
 ## 4. OCR 模块表（`pdf_ocr_module/ocr_service/db.py`）
 
@@ -45,7 +47,7 @@
 | `ocr_jobs` | 黄 | id, file_id, generation, owner_id, status, options(JSON), attempts, lease_token, lease_until, available_at, created_at, finished_at | 岳（`cancel_tasks`） |
 | `ocr_pages` | 黄 | id, job_id, page_no, status, revision, result(JSON), error | 黄 |
 | `pdf_text_index` | 黄 | id, file_id, page_no, job_id, revision, **content**, updated_at | **陈直接 SQL join（`search/service.py:26-41`）** |
-| `ocr_audit_log` | 黄 | id, actor_id, action, resource_id, detail, created_at | 陈（统计时与 `audit_logs` 合并） |
+| `ocr_audit_log` | 黄 | id, actor_id, action, resource_id, detail, created_at | —（统计用途属范围外） |
 
 ## 5. 跨线共享字段：改这些 = 契约变更
 
@@ -57,9 +59,8 @@
 | `files.media_type` | 岳 | 黄镜像；`render_page` 按它分支 PDF/图片 | 渲染失败 |
 | `files.page_count` | 岳 | 黄镜像；**决定配额预留页数** | 配额算错 |
 | `files.deleted_at` | 岳 | 陈 `search`/`visible_files`/`owned_file` 均按它过滤 | 回收站文件仍被检索到 |
-| `files.version`、`replaced_from` | 岳 | 合并/拆分产生新版本（FR-FILE-09） | 版本链断裂 |
 | `annotations.payload` | 岳 | 与黄 OCR bbox 同口径：**左上原点、归一化** | 覆盖层错位 |
 | `pdf_text_index.content` | 黄 | 陈 `MATCH AGAINST` / `LIKE` 直接查 | 检索 500 |
 | `pdf_text_index.job_id`、`revision` | 黄 | 陈用于标注来源、避免展示过期文本 | 展示旧文本 |
-| `quota_accounts.pages_reserved/used` | 陈 | 黄写 | 配额错乱、429 误报 |
+| `quota_accounts.pages_reserved/used` | 陈 | 黄写（仅内部记账） | 内部记账错乱 |
 | `QuotaLedger.ref_id` | 陈 | 黄：预留时 `ref_id=None`（拿不到 job_id），终态时按 job 回填 | 对账断链 |

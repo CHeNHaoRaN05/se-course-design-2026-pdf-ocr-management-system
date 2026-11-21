@@ -1,10 +1,9 @@
-> 2026-11-14 校订：当前 03 线状态及测试证据见仓库 `docs/line03-review-20261114.md`，接口清单见 `docs/route-inventory.md`；下文旧里程碑和历史测试数字不代表当前验收。
-
 # 开发基线（公共限制 · 分工 · 优先级 · 验收）
 
 > 项目：基于本地 OCR 的 PDF 文件显示与管理系统
 > 小组成员：陈浩然（组长，2024141460570）、黄俞富（2024141460074）、岳浩睿（2024141460114）
 > 配套文档：[`architecture.md`](architecture.md)（接口与调用关系）、[`api-contract.yaml`](api-contract.yaml)（接口契约）、[`team/`](team/)（各端开发指南）、[`CONTRIBUTING.md`](../CONTRIBUTING.md)（协作流程）
+> 本版按最小必须功能集裁剪，范围外项见 [`features.md`](features.md) 的 1.2 节。
 >
 > **第 0 节是公共限制，动手写代码前必须读完。** 违反其中任何一条都会导致全组返工或联调失败。
 
@@ -35,7 +34,7 @@
 | 主系统 API | 3.12 / 3.13 / 3.14 均可 | `api.py` 顶层不 import paddle |
 | OCR worker | **必须 ≤ 3.13，统一用 3.12** | `paddlepaddle==3.0.0` 最高只提供 cp313 wheel，无 cp314 |
 
-`requirements.txt` 主组锁的是 3.12 版本组；本机 `.venv` 是用文件末尾「Python 3.14 可用版本」装的备用组。**两者不是同一套版本**，交付前必须统一，否则本地与部署漂移。
+`requirements.txt` 主组锁的是 3.12 版本组；本机 `.venv` 是用文件末尾「Python 3.14 可用版本」装的备用组。**两者不是同一套版本**，交付前必须统一。
 
 ## 0.3 三个环境变量必须一致
 
@@ -81,7 +80,7 @@ Python 版本**允许不同**（主系统 3.14 + worker 3.12），这是原设�
 |---|---|---|
 | C1 | JWT 走 `Authorization` 头，主系统签发、OCR 模块验签 | 陈 → 黄 |
 | C2 | `ocr.bridge.ensure_ocr_file()` 镜像文件 | 岳 → 黄 |
-| C3 | `quota.reserve()` 入队扣配额 | 黄 → 陈 |
+| C3 | 按页记账（OCR 内部），不承诺用户可见配额/超额拦截 | 黄 → 陈 |
 | C4 | 覆盖层归一化坐标 | 黄 → 岳 |
 | C5 | `ocr.lifecycle.cancel_tasks() / purge_file()` | 岳 → 黄 |
 
@@ -96,11 +95,11 @@ Python 版本**允许不同**（主系统 3.14 + worker 3.12），这是原设�
 
 | 功能线 | 成员 | GitHub | 负责模块 | 需求章节 | 主要代码路径 |
 |---|---|---|---|---|---|
-| 01 | 陈浩然（组长） | `@CHeNHaoRaN05` | 用户与权限、分享与协作、配额/日志/统计 | 2.2、2.10、2.11 | `backend/modules/{auth,quota}`、`backend/core/**`、`frontend/src/features/auth` |
-| 02 | 岳浩睿 | `@zhimengshusi` | 文件管理、PDF 阅读器 | 2.3、2.4 | `backend/modules/{files,reader}`、`frontend/src/features/{files,reader}` |
-| 03 | 黄俞富 | `@smile1810` | OCR 识别、校对、表格还原、导出、全文检索 | 2.5、2.6、2.7、2.8、2.9 | `backend/modules/{ocr,search}`、`pdf_ocr_module/**`、`frontend/src/features/{ocr,search}` |
+| 01 | 陈浩然（组长） | `@CHeNHaoRaN05` | 用户与权限、分享与协作、配额/日志 | 2.2、2.10 | `backend/modules/{auth,quota,share}`、`backend/core/**`、`frontend/src/features/auth` |
+| 02 | 岳浩睿 | `@zhimengshusi` | 文件管理、PDF 显示 | 2.3、2.4 | `backend/modules/{files,reader}`、`frontend/src/features/{files,reader}` |
+| 03 | 黄俞富 | `@smile1810` | OCR 识别、导出、全文检索 | 2.5、2.6、2.7 | `backend/modules/{ocr,search}`、`pdf_ocr_module/**`、`frontend/src/features/{ocr,search}` |
 
-组长额外职责：`core/` 与 `main.py` 的维护、全组 PR review、schema 定稿、部署脚本。
+组长额外职责：`core/` 与 `main.py` 的维护、全组 PR review、schema 定稿。
 
 各线详细任务与跨线接口见 [`team/backend.md`](team/backend.md)，前端约定见 [`team/frontend.md`](team/frontend.md)。
 
@@ -112,29 +111,26 @@ Python 版本**允许不同**（主系统 3.14 + worker 3.12），这是原设�
 
 | 优先 | 线 | 任务 | 说明 |
 |---|---|---|---|
-| P0 | 03 黄 | 租约与锁定不依赖 no-op rowcount | 已修复；MySQL 8.0.40 关闭 FOUND_ROWS 验证通过 |
 | **P0** | 01 陈 | schema 定稿冻结（补齐 `share_link` 等模型） | ✅ 已完成（阶段0） |
 | P1 | 01 陈 | 分享与协作 | ✅ 已完成（阶段1） |
-| P1 | 02 岳 | 合并 / 拆分 PDF | 纯增量，依赖已就绪的上传落盘 |
-| P1 | 03 黄 | 检索过滤与历史 | |
-| P2 | 02 岳 | 缩略图、页内搜索、批注修改 | 前端增量 |
-| P2 | 01 陈 | 统计看板前端 | ✅ 已完成（阶段2，页面已建） |
+| P1 | 02 岳 | 合并 / 拆分 PDF | PR #9 已实现待合并 |
 | P2 | 01 陈 | 管理员改角色、登出/刷新/改密码 | ✅ 已完成（阶段1/2） |
-| P2 | 02 岳 | 批量操作 | |
-| P3 | 03 黄 | OCR 准确率评测集 | 需人工标注 200 页 |
+| P2 | 02 岳 | 批量操作 | PR #9 已实现待合并 |
+
+> 原优先级表中的 MySQL no-op 缺陷、检索过滤与历史、缩略图/页内搜索/批注修改、统计看板、200 页评测均属范围外，见 `features.md` 1.2。
 
 ## 2.2 合并顺序（按依赖排）
 
 ```
 schema 定稿（陈）
       ↓
-quota（陈）  ←── ocr（黄）依赖它（C3）
+quota（陈，仅内部记账）  ←── ocr（黄）依赖它（C3）
       ↓
 ocr（黄）    ←── files（岳）依赖它（C2、C5）
       ↓
 files（岳）
       ↓
-share / admin-role（陈）、merge / bulk（岳）、search-filter（黄）   ← 并行，无依赖
+share / admin-role（陈）、merge / bulk（岳）   ← 并行，无依赖
 ```
 
 **同一时间多个 PR 待合：先合被依赖方。** 顺序错了，后合的人要 rebase 两次。
@@ -145,10 +141,10 @@ share / admin-role（陈）、merge / bulk（岳）、search-filter（黄）   �
 
 | 周次 | 目标 |
 |---|---|
-| W5 | schema 定稿冻结；黄修完 MySQL 缺陷；三人各自跑通本地环境 |
+| W5 | schema 定稿冻结；三人各自跑通本地环境 |
 | W6 | 各线 P1 任务完成；跨线契约联调（C2 / C3 / C5） |
-| W7 | P2 任务；前端页面补齐；OCR 准确率评测 |
-| W8 | 测试补全（合并/拆分、分享、校对 409 冲突三块无测试）；文档定稿；部署演练 |
+| W7 | 前端/管理页面补齐 |
+| W8 | 测试补全（合并/拆分、分享）；文档定稿 |
 
 ---
 
@@ -164,13 +160,15 @@ share / admin-role（陈）、merge / bulk（岳）、search-filter（黄）   �
 
 ## 4.2 全链路验收（三人共同）
 
-上传 → 落盘 → 镜像 → 建任务 → worker 领取 → 识别 → 回写 → 检索，全链路跑通；
+上传 → 镜像 → 建任务 → 识别 → 回写 → 检索，全链路跑通；
 `GET /health` 返回 `{"status":"ok","ocr_mounted":true,...}`。
 
 ## 4.3 需求文档追踪
 
-分工表中的编号需与需求文档第 2 章小节对应（2.2 → `FR-USER`，2.3 → `FR-FILE`，2.4 → `FR-READ`，2.5 → `FR-OCR`，2.6 → `FR-COR`，2.7 → `FR-TBL`，2.8 → `FR-EXP`，2.9 → `FR-SEA`，2.10 → `FR-SHR`，2.11 → `FR-QTA`）。
+分工表中的编号需与需求文档第 2 章小节对应（2.2 → `FR-USER`，2.3 → `FR-FILE`，2.4 → `FR-READ`，2.5 → `FR-OCR`，2.6 导出 → `FR-EXP`，2.7 检索 → `FR-SEA`，2.8 分享 → `FR-SHR`）。
 需求编号总表见 [`features.md`](features.md) 的「功能模块与需求编号总表」。
+
+说明：OCR 真实权重推理待跑通——需先按 `test_real_pipeline.py` 跑通一次真实识别，否则按 `features.md` 1.2 缩小演示口径并提前与指导教师确认。
 
 ---
 

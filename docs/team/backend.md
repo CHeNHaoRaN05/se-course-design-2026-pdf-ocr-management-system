@@ -1,5 +1,3 @@
-> 2026-11-14 校订：当前 03 线状态及测试证据见仓库 `docs/line03-review-20261114.md`，接口清单见 `docs/route-inventory.md`；下文旧里程碑和历史测试数字不代表当前验收。
-
 # 后端开发指南（各线详细分工与跨线接口）
 
 > 配套文档：[`../architecture.md`](../architecture.md)（接口总表与调用关系）、[`../api-contract.yaml`](../api-contract.yaml)（接口契约）、[`database.md`](database.md)（表清单与 schema 冻结）、[`../development-baseline.md`](../development-baseline.md)（公共限制）
@@ -9,13 +7,13 @@
 
 ## 线 01 用户与权限 —— 陈浩然
 
-**编号区间**：`FR-USER-*`（2.2）、`FR-SHR-*`（2.10）、`FR-QTA-*`（2.11）
+**编号区间**：`FR-USER-*`（2.2）、`FR-SHR-*`（2.8）
 
 ### 已实现
 - 注册、登录、`/auth/me`、JWT 签发与校验
 - `core/principal.py`：`current_user` / `require_editor` / `require_admin` / `owned_file`（越权 404）
-- 配额预留 / 结算 / 退款、`/quota/overview`
-- 审计日志 `audit.py`（已通用化，接受任意表名）
+- 配额预留 / 结算 / 退款 —— 仅 OCR 内部记账，无用户看板（`/quota/overview` 仅为内部接口，非交付承诺）
+- 审计日志 `audit.py`（已通用化，接受任意表名；保留通用表，180 天保留作业范围外）
 
 ### 待办
 
@@ -26,7 +24,6 @@
 | FR-USER-03 | 管理员改角色 | `PATCH /auth/users/{id}/role`，复用 `require_admin` | ✅ 已实现（阶段1） |
 | FR-USER-04 | 账号禁用 | `User.disabled` 字段+拦截（阶段0）；`PATCH /auth/users/{id}/disabled` 管理端点（阶段2） | ✅ 已实现（阶段2） |
 | FR-SHR-01/02/03 | 分享链接（有效期/提取码/允许下载）、取消分享、访问统计 | `modules/share/{router,service,schemas}.py` + `models/share.py`；`core/principal.py` 加旁路解析函数 | ✅ 已实现（阶段1） |
-| FR-QTA-04 | 统计看板**前端页面** | `frontend/src/features/stats/StatsPage.tsx`，后端 `/quota/overview` 已就绪 | ✅ 已实现（阶段2） |
 
 ### 技术要点
 - 分享链接做成**独立 router**，只在 `core/principal.py` 加一个旁路解析函数，不碰主路径
@@ -47,15 +44,10 @@
 
 | 编号 | 任务 | 位置 | 状态 |
 |---|---|---|---|
-| FR-FILE-07 | 批量操作（删 / 移动 / 打标） | `files/management.py`：归属预检、逐项事务与结果汇总 | 613be22已推送并经复测；后续修复见复测记录 |
-| FR-FILE-08 | 合并 / 拆分 PDF | `files/management.py`：服务端 PDFium、源文件校验、100页限制、失败回滚清理 | 613be22已推送并经复测；后续修复见复测记录 |
-| FR-FILE-09 | 文件版本与代次 | 查询接口读取既有 OCR generation；历史文件版本管理尚未实现 | 代次展示已实现，版本管理待办 |
-| FR-READ-04 | 缩略图侧栏 | `ReaderPage.tsx:79` 有占位文案 | 未开工 |
-| FR-READ-05 | 目录大纲 | | 未开工 |
-| FR-READ-06 | 页内搜索与命中高亮 | 需 pdf.js `TextLayer` + `findController` | 未开工 |
-| FR-READ-08 | 批注**修改**、撤销 | `reader/service.py` 只有 add/remove/list，缺 update | 未开工 |
-| FR-READ-09 | OCR 文本层叠加（可选中复制） | 需 `renderTextLayer`，与黄按 C4 对接坐标 | 未开工 |
-| FR-READ-10 | 阅读位置记忆 | 前端 localStorage 或后端存 | 未开工 |
+| FR-FILE-07 | 批量操作（删 / 移动 / 打标） | `files/management.py` 的 `POST /files/bulk` | PR #9 已合入 main |
+| FR-FILE-08 | 合并 / 拆分 PDF | `files/management.py` 的 `/merge`、`/{id}/split`，用 `pypdfium2` | PR #9 已合入 main |
+
+> 版本代次、缩略图侧栏、目录大纲、页内搜索、批注修改/撤销、OCR 文本层、阅读位置记忆均属范围外，见 `../features.md` 1.2。
 
 ### 技术要点
 - 批注坐标**按归一化存储**以适配缩放；旋转后坐标需变换（需求 2.4）
@@ -66,22 +58,17 @@
 
 ## 线 03 OCR 与检索 —— 黄俞富
 
-**编号区间**：`FR-OCR-*`（2.5）、`FR-COR-*`（2.6）、`FR-TBL-*`（2.7）、`FR-EXP-*`（2.8）、`FR-SEA-*`（2.9）
+**编号区间**：`FR-OCR-*`（2.5）、`FR-EXP-*`（2.6）、`FR-SEA-*`（2.7）
 
 ### 已实现
-- `pdf_ocr_module/ocr_service` 引擎 1313 行，自带 OCR 接口（识别、校对、表格、5 种导出、检索）
+- `pdf_ocr_module/ocr_service` 引擎 1313 行，自带 15 个接口（识别 / 导出 / 检索；校对、表格属范围外，见 `../features.md` 1.2）
 - 主系统适配层 `modules/ocr/{mount,bridge,quota,lifecycle,router}` 约 320 行
 - `modules/search` 检索服务
 
 ### 待办
 
-| 编号 | 任务 | 位置 | 状态 |
-|---|---|---|---|
-| P0 | 03 黄 | 租约与锁定不依赖 no-op rowcount | 已修复；MySQL 8.0.40 关闭 FOUND_ROWS 验证通过 |
-| FR-SEA-04 | 检索过滤（按文件 / 时间 / 标签） | `search/router.py`、`SearchPage.tsx`（58 行） | 已实现并有回归测试 |
-| FR-SEA-05 | 检索历史 | 同上 | 已实现并有回归测试 |
-| FR-OCR-09 | 准确率评测集（200 页标注） | 需自建标注集 + 评测脚本 | W8 |
-| FR-OCR-10 | 手写模式（可选） | `yolo_runner.py` 已留口，需专用 YOLO 权重 | 可选 |
+无。MySQL no-op 缺陷（本版以 SQLite 演示）、检索过滤/历史、准确率评测集、手写模式均属范围外，见 `../features.md` 1.2。
+**当前首要任务**：按 `test_real_pipeline.py` 跑通一次真实 Paddle 权重识别链路。
 
 ### 技术要点
 - worker 是**独立进程 + 独立虚拟环境**（Python 3.12 + paddlepaddle 3.0.0），报错链条最长
@@ -111,6 +98,8 @@
 | `principal.owned_file` | `(session, file_id, user) -> File`，越权/已删统一 404 | 岳、黄 |
 | `principal.visible_files` | `(statement, user) -> statement` | 岳、陈 |
 | `models.base.now()` / `uid()` | 无参 | 全员（**禁止自己用 `datetime.now()` 或 `uuid4()`**） |
+
+> `quota.*` / `ocr.quota.*`（含 `quota.usage`、`ocr.lifecycle.ocr_usage`）仅用于 **OCR 内部按页记账**，无用户看板、无容量限制类功能（范围外，见 `../features.md` 1.2）。
 
 `Principal` 暴露三个成员：`user_id: str`、`role: str`、`is_admin: bool`。
 需要新属性（如 `is_editor`）时提 PR 给陈，**不要绕过 Principal 自己查 User 表**。
@@ -151,9 +140,3 @@
 
 **任何一侧修改校验规则，都必须同步另一侧**（契约 C2）。
 例如岳提高了页数上限而黄没同步 → 上传成功但 worker 渲染失败，且报错指向 OCR 侧，极难定位。
-
-## 2026-11-11 02 线审查修复
-
-文件服务端分页（total、类型/日期/状态筛选、状态排序）与回收站列表已补齐。01 线 auth/users、audit、分享期限/提取码、管理员自降级保护，03 线检索类型过滤和轮询取消为本次用户授权的跨线修复，需维护者评审；没有改变模型结构、resolve_principal 或 C1–C5 函数签名。详见 [逐项结论](../reviews/02-review-resolution.md)。
-
-2026-11-13复测补充：SQLite命名并发、批量部分失败、列表total、来源版本和HTTP取消边界已处理。01/03跨线维护者评审未由本任务代为完成；完整版本历史、后台无人值守配额结算和同ID重试账务仍待专项设计。

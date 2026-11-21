@@ -3,7 +3,7 @@
 
 用法（在仓库根目录执行）：
     python build/make_docx.py
-输出：docs/需求分析文档.docx
+输出：docs/requirements/需求分析文档.docx
 """
 import glob
 import os
@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 IMG_DIR = os.path.join(ROOT, "uml")
-OUT = os.path.join(ROOT, "docs", "需求分析文档.docx")
+OUT = os.path.join(ROOT, "docs", "requirements", "需求分析文档.docx")
 
 SONG = "宋体"
 HEI = "黑体"

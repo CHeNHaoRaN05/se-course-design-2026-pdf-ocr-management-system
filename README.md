@@ -1,5 +1,7 @@
 # se-course-design-2026-pdf-ocr-management-system
-基于Python的PDF文件管理与识别系统，支持PDF显示、翻页缩放、文字与图片OCR识别、智能分类管理。A software engineering course project for PDF management, OCR recognition and classification.
+基于 Python 的本地 PDF 文件管理与显示系统，支持上传、下载、在线阅读、文件管理，以及 OCR 识别链路跑通（提交任务、查看结果与导出、全文检索）。A software engineering course project for local PDF management, display and OCR recognition.
+
+交付范围按最小必须功能集裁剪，范围外项见 [`docs/features.md`](docs/features.md) 1.2。
 
 ## 文档
 
@@ -7,10 +9,14 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/architecture.md`](docs/architecture.md) | 系统架构与 接口总表（数量以生成契约为准） |
+| [`docs/requirements/`](docs/requirements/) | 需求分析文档（Markdown 与 Word 正稿） |
+| [`docs/design/系统设计文档.md`](docs/design/系统设计文档.md) | 系统设计文档（架构、数据、接口、运行维护） |
+| [`docs/design/界面原型设计.md`](docs/design/界面原型设计.md) | 界面原型说明与截图索引 |
+| [`docs/architecture.md`](docs/architecture.md) | 系统架构与接口总表 |
 | [`docs/api-contract.yaml`](docs/api-contract.yaml) | API 契约（OpenAPI） |
 | [`docs/database-design.md`](docs/database-design.md) / [`docs/er-diagram.mmd`](docs/er-diagram.mmd) | 数据库设计与 E-R 图 |
-| [`docs/features.md`](docs/features.md) | 需求分析与功能点编号总表 |
+| [`docs/features.md`](docs/features.md) | 功能点与需求编号总表 |
 | [`docs/development-baseline.md`](docs/development-baseline.md) | 公共限制、分工、优先级与验收 |
 | [`docs/team/`](docs/team/) | 各端开发指南（后端 / 前端 / 数据库 / 环境配置） |
+| [`docs/qa/`](docs/qa/) | 测试审查与复测报告 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 协作流程 |

@@ -11,12 +11,13 @@
 frontend/src
   app/        App.tsx / router.tsx / Layout / AuthProvider   ← 陈
   shared/     http.ts（统一 fetch 封装）/ types.ts           ← 陈
-  features/   auth / files / reader / ocr / search           ← 按线划分
+  features/   auth / files / reader / ocr / search / management ← 按线划分（management 页在 PR #9）
 ```
 
 - `shared/**` 与 `app/**` 归陈，`types.ts` 按线分区
-- 路由共 5 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`、`/stats`（统计看板，线01 陈）
+- 路由共 4 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`（`/stats` 统计看板属范围外，见 `../features.md` 1.2）
 - **新增页面由陈统一注册路由**，其余人提需求
+- PR #9（已合入 main）补充：`FilesPage` 的「下载原文件」按钮与 `features/management` 管理页（含分享管理）在 PR #9，合入 main 后才可用；下载必须走 `apiBlob` / `downloadBlob`，不能用裸 `<a href>`
 - **删除二次确认（NFR-USE-02）归属说明**：文件删除 / 彻底删除的确认弹窗位于 `FilesPage`（`features/files`，**02 线 岳**），**不属 01 线（陈）**；NFR 同时要求的"撤销分享"确认属 share 域（01 线后端，分享管理 UI 视落地页而定）、"整册重试"属 03 线（黄）。即：01 线（陈）只对自己负责的分享相关操作做二次确认，**文件删除确认不是 01 线的职责**。
 
 ## 2. 统一约定
@@ -42,9 +43,8 @@ LoginPage        ──login──> （内联）        ──> api<T>() ──>
 FilesPage        ─────────> filesApi.ts   ──> api<T>() ──> /files/**
 ReaderPage       ─────────> readerApi.ts  ──> api<T>() ──> /files/{id}/reader/**
                  ─────────> ocrApi.ts     ──> api<T>() ──> /ocr/**, /ocr-host/**
-                 ──渲染───> OcrPanel / OcrOverlay（覆盖层，坐标按 C4）
+                 ──渲染───> OcrPanel / OcrOverlay（覆盖层，坐标按 C4；OCR 文本层叠加属范围外）
 SearchPage       ─────────> （内联）        ──> api<T>() ──> /search
-StatsPage        ─────────> （内联）        ──> api<T>() ──> /quota/overview
 ```
 
 完整接口清单见 [`../architecture.md`](../architecture.md) 第 3 节。
@@ -53,7 +53,6 @@ StatsPage        ─────────> （内联）        ──> api<T>
 
 - 批注 `payload` 与 OCR `bbox` 同口径：**左上原点、归一化**
 - 批注坐标**按归一化存储**以适配缩放；旋转后坐标需变换
-- FR-READ-09（OCR 文本层叠加）需 pdf.js `renderTextLayer`，与黄（03 线）按 C4 对接
 
 ## 6. 常用命令
 

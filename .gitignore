@@ -95,3 +95,10 @@ htmlcov/
 # ⚠️ 刻意不加 `build/`：本仓库根目录的 build/ 是需求文档生成脚本
 #    （doc_part1.py … make_docx.py），属源码而非构建产物。
 #    若从 GitHub 模板复制 .gitignore，务必删掉其中的 build/ 一行。
+
+# 历史文档（上一版需求文档，本地保留不入库）
+/历史文档/
+
+# 本机 IDE 会话数据与文档修订备份（不入库）
+.workbuddy/
+*.bak_*

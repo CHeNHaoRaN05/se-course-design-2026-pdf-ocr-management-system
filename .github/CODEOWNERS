@@ -2,50 +2,60 @@
 # 代码所有权（GitHub 会据此自动指派 reviewer）
 #
 #    陈浩然（组长，01 线）  @CHeNHaoRaN05
-#    岳浩睿（02 线）        @zhimengshusi
-#    黄俞富（03 线）        @smile1810
+#    岳浩睿（02 线）        @zhimenghuali   # PR #9 的 head 作者账号
+#    黄俞富（03 线）        @smile4180      # PR #10 的作者账号
 #
 # 仓库：CHeNHaoRaN05/se-course-design-2026-pdf-ocr-management-system
+# 2026-11-21 修正：所有规则补齐真实的 pdf_system/、pdf_ocr_module/ 前缀；
+# owner 句柄换成 GitHub 上可解析且有提交记录的账号（旧 @zhimengshusi 等均 404）。
+# 注意：ruleset `protect-main` 还须人工补 required_status_checks，否则门禁仍空转。
 # ============================================================
 
 # ---- 共享底座：仅陈可合并，其余两人改动需其 review ----
-/backend/core/                @chenhaoran
-/backend/main.py              @chenhaoran
-/backend/scripts/             @chenhaoran
-/frontend/src/app/            @chenhaoran
-/frontend/src/shared/         @chenhaoran
-/frontend/src/main.tsx        @chenhaoran
-/frontend/src/App.tsx         @chenhaoran
-/frontend/src/styles.css      @chenhaoran
+/pdf_system/backend/core/                @CHeNHaoRaN05
+/pdf_system/backend/main.py              @CHeNHaoRaN05
+/pdf_system/backend/scripts/             @CHeNHaoRaN05
+/pdf_system/frontend/src/app/            @CHeNHaoRaN05
+/pdf_system/frontend/src/shared/         @CHeNHaoRaN05
+/pdf_system/frontend/src/main.tsx        @CHeNHaoRaN05
+/pdf_system/frontend/src/App.tsx         @CHeNHaoRaN05
+/pdf_system/frontend/src/styles.css      @CHeNHaoRaN05
 
 # ---- 数据模型：按线分，但 __init__.py 由陈仲裁 ----
-/backend/models/base.py       @chenhaoran
-/backend/models/__init__.py   @chenhaoran
-/backend/models/user.py       @chenhaoran
-/backend/models/quota.py      @chenhaoran
-/backend/models/audit.py      @chenhaoran
-/backend/models/file.py       @yuehaorui
-/backend/models/reader.py     @yuehaorui
+/pdf_system/backend/models/base.py       @CHeNHaoRaN05
+/pdf_system/backend/models/__init__.py   @CHeNHaoRaN05
+/pdf_system/backend/models/user.py       @CHeNHaoRaN05
+/pdf_system/backend/models/quota.py      @CHeNHaoRaN05
+/pdf_system/backend/models/audit.py      @CHeNHaoRaN05
+/pdf_system/backend/models/file.py       @zhimenghuali
+/pdf_system/backend/models/reader.py     @zhimenghuali
 
 # ---- 01 线：用户与权限 ----
-/backend/modules/auth/        @chenhaoran
-/backend/modules/quota/       @chenhaoran
-/frontend/src/features/auth/  @chenhaoran
+/pdf_system/backend/modules/auth/        @CHeNHaoRaN05
+/pdf_system/backend/modules/quota/       @CHeNHaoRaN05
+/pdf_system/backend/modules/audit/       @CHeNHaoRaN05
+/pdf_system/backend/modules/share/       @CHeNHaoRaN05
+/pdf_system/frontend/src/features/auth/  @CHeNHaoRaN05
 
 # ---- 02 线：文件管理与阅读器 ----
-/backend/modules/files/       @yuehaorui
-/backend/modules/reader/      @yuehaorui
-/frontend/src/features/files/ @yuehaorui
-/frontend/src/features/reader/ @yuehaorui
+/pdf_system/backend/modules/files/       @zhimenghuali
+/pdf_system/backend/modules/reader/      @zhimenghuali
+/pdf_system/frontend/src/features/files/       @zhimenghuali
+/pdf_system/frontend/src/features/reader/      @zhimenghuali
+/pdf_system/frontend/src/features/management/  @zhimenghuali
 
 # ---- 03 线：OCR 与检索 ----
-/backend/modules/ocr/         @huangyufu
-/backend/modules/search/      @huangyufu
-/frontend/src/features/ocr/   @huangyufu
-/frontend/src/features/search/ @huangyufu
-/pdf_ocr_module/              @huangyufu
+/pdf_system/backend/modules/ocr/         @smile4180
+/pdf_system/backend/modules/search/      @smile4180
+/pdf_system/frontend/src/features/ocr/   @smile4180
+/pdf_system/frontend/src/features/search/ @smile4180
+/pdf_ocr_module/                         @smile4180
 
-# ---- 文档与契约：三人共管，任一改动需全体确认 ----
-/docs/                         @chenhaoran @yuehaorui @huangyufu
-/README.md                     @chenhaoran @yuehaorui @huangyufu
-/.github/                      @chenhaoran
+# ---- 文档与契约：三人共管 ----
+/pdf_system/docs/contracts/              @CHeNHaoRaN05 @zhimenghuali @smile4180
+/docs/                                   @CHeNHaoRaN05 @zhimenghuali @smile4180
+/README.md                               @CHeNHaoRaN05 @zhimenghuali @smile4180
+/CONTRIBUTING.md                         @CHeNHaoRaN05 @zhimenghuali @smile4180
+/.github/                                @CHeNHaoRaN05
+/build/                                  @CHeNHaoRaN05
+/scripts/                                @CHeNHaoRaN05

@@ -1,8 +1,6 @@
-> 2026-11-14 校订：当前 03 线状态及测试证据见仓库 `docs/line03-review-20261114.md`，接口清单见 `docs/route-inventory.md`；下文旧里程碑和历史测试数字不代表当前验收。
-
 # 统一开发环境配置
 
-> 本文所有版本号与输出均在本机**实测通过**，不是照抄 README。
+> 本文版本号与环境配置均在本机**实测通过**（限安装 / 建表 / 上传 / OCR 任务提交 / 检索 / 导出链路；**OCR 推理尚未跑通**，真实 Paddle 权重推理与准确率评测属范围外，见 `../features.md` 1.2），不是照抄 README。
 > 配套：[`../architecture.md`](../architecture.md)（接口与调用关系）、[`../development-baseline.md`](../development-baseline.md)（公共限制与分工）、[`backend.md`](backend.md)（各线详细分工）。
 
 ## 0. 结论先行
@@ -31,7 +29,7 @@
 | pydantic | 2.14.1 | 主组 `>=2.13` |
 | pydantic-core | **2.50.1** | pip 自动解析（关键，见 4.1） |
 | PyJWT | 2.10.1 | 主组 |
-| PyMySQL | 1.1.1 | 主组（MySQL 演示时需） |
+| PyMySQL | 1.1.1 | 主组（依赖保留，本版演示不用 MySQL） |
 | pypdfium2 | 5.14.0 | 主组 |
 | Pillow | 11.3.0 | 主组 |
 | pytest / httpx | 8.4.1 / 0.28.1 | 主组 |
@@ -51,7 +49,7 @@
 | 项 | 状态 |
 |---|---|
 | 数据库 | SQLite `pdf_system/data/dev.sqlite3`，**14 张表**（主系统 9 + OCR 5） |
-| 模型权重 | 已下载：`text_detector.pdparams` 13.7 MB、`text_recognizer.pdparams` 204.6 MB |
+| 模型权重 | 已下载：`text_detector.pdparams` 13.7 MB、`text_recognizer.pdparams` 204.6 MB（下载步骤保留；真实 OCR 推理尚未跑通） |
 | 示例文件 | `pdf_system/data/samples/demo.pdf`（3 页，内容为 `PDF SYSTEM UPLOAD TEST`） |
 | Node.js | **未安装**（前端需要，见第 6 节） |
 | MySQL | 未注册为服务、未启动 —— 开发期不用 |
@@ -103,6 +101,7 @@ cd /c/path/to/se_course_design/pdf_ocr_module
 ```
 
 按 `ocr_service/models/manifest.json` 的 URL 下载并校验 SHA256，共约 218 MB。
+> 权重下载步骤保留；**真实 Paddle 推理链路尚未跑通**（范围外，见 `../features.md` 1.2）。
 
 ### 3.4 `.env`
 
@@ -110,10 +109,9 @@ cd /c/path/to/se_course_design/pdf_ocr_module
 cd pdf_system && cp .env.example .env
 ```
 
-必改两处：
+必改一处：
 
-1. `PDF_JWT_SECRET` —— 至少 32 字符，生成：`python -c "import secrets;print(secrets.token_hex(32))"`
-2. `PDF_DATABASE_URL` —— 开发期保持 SQLite；**用 MySQL 才取消注释那行**
+1. `PDF_JWT_SECRET` —— 至少 32 字符，生成：`python -c "import secrets;print(secrets.token_hex(32))"`；其余（含 `PDF_DATABASE_URL`）保持 SQLite 默认
 
 其余保持默认即可。关键点：`PDF_JWT_SECRET` 必须与 worker 的 `OCR_JWT_SECRET` **一字不差**。
 
@@ -160,14 +158,6 @@ PY="D:/miniconda3/envs/ocrpaddle/python.exe"
 
 > **待黄修复**：把 lock 文件第 32 行 `opencv-python==4.11.0.86` 删掉，只留 headless。
 > 否则组里任何一个人重建环境都会再踩一次，且报错完全不指向根因。
-
-### 4.3 MySQL 的 no-op UPDATE 缺陷
-
-`queue.py` 的 `locked_job` 与 `api.py:223` 的 `correct` 依赖「把字段更新成原值」的 `rowcount`，
-而 **MySQL 只统计真正变化的行** → worker 无法提交结果、校对恒 409。
-
-**SQLite 不受影响**，所以开发期用 SQLite 能正常跑（见第 5 节实测）。
-> 历史风险已在 2026-11-14 修复并完成 MySQL 实库回归；不要将 no-op rowcount 一概等同于失败。
 
 ### 4.4 首次启动 worker 较慢
 
@@ -217,7 +207,7 @@ echo "$UP"
 FID=$(echo "$UP" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
 ```
 
-### 5.3 提交 OCR 任务（并验证配额预留）
+### 5.3 提交 OCR 任务（并验证按页内部记账）
 
 ```bash
 JOB=$(curl -s -X POST http://127.0.0.1:8000/api/v1/ocr/jobs \
@@ -235,14 +225,14 @@ curl -s http://127.0.0.1:8000/api/v1/quota/overview -H "Authorization: Bearer $T
 #  "quota":{"month":"2026-10","pages_reserved":3,"pages_used":0,"pages_committed":3}}
 ```
 
-`pages_reserved` 从 0 变 3 —— **契约 C3（入队扣配额）生效**。
+`pages_reserved` 从 0 变 3 —— **按页内部记账生效**（契约 C3 入队扣配额）；`/quota/overview` 仅用于内部核对，不是用户看板（看板属范围外）。
 
 ### 5.4 起 worker（另开终端）
 
 ```bash
 cd /c/path/to/se_course_design/pdf_ocr_module
-export OCR_DATABASE_URL="sqlite:///C:/path/to/se_course_design/pdf_system/data/dev.sqlite3"
-export OCR_STORAGE="C:/path/to/se_course_design/pdf_system/data/storage"
+export OCR_DATABASE_URL="sqlite:///C:/Users/Administrator/Desktop/se_course_design/pdf_system/data/dev.sqlite3"
+export OCR_STORAGE="C:/Users/Administrator/Desktop/se_course_design/pdf_system/data/storage"
 export OCR_JWT_SECRET="$(grep '^PDF_JWT_SECRET=' ../pdf_system/.env | cut -d= -f2-)"
 export OCR_DEVICE=cpu
 "D:/miniconda3/envs/ocrpaddle/python.exe" -m ocr_service worker
@@ -273,8 +263,7 @@ curl -s "http://127.0.0.1:8000/api/v1/search?q=PDF" -H "Authorization: Bearer $T
 #    "job_id":"5c9650d1...","revision":1,"snippet":"PDF SYSTEM UPLOAD TEST\nPage 3 of3..."}]}
 ```
 
-> 实测 `/api/v1/search` 与 `/api/v1/ocr/search` 返回结果一致。SQLite 下两者都走 `substring`（LIKE）；
-> MySQL 下前者走 ngram 全文索引。前端目前只用 `/search`。
+> 实测 `/api/v1/search` 与 `/api/v1/ocr/search` 返回结果一致（SQLite 下两者都走 `substring` / LIKE）。前端只用 `/search`；`/ocr/search` 仅模块内部保留。
 
 ### 5.7 导出
 
@@ -308,8 +297,7 @@ npm run dev     # http://localhost:5173
 [ ] 14 张表已建
 [ ] curl /health → ocr_mounted: true
 [ ] 主系统与 worker 的库/存储/密钥三项一致
-[ ] 跑通 5.2–5.6 全链路
-[ ] 若用 MySQL：服务已启动 + no-op 缺陷已修（4.3）
+[ ] 跑通 5.2–5.6 全链路（按上传 / 提交 / 检索 / 导出验收；OCR 推理未跑通）
 ```
 
 ## 8. 环境隔离红线
