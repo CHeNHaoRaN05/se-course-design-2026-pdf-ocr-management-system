@@ -9,7 +9,10 @@ import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 
-const browser = await chromium.launch();
+// 与 playwright.config.ts 的 PLAYWRIGHT_CHANNEL 约定保持一致：CI ubuntu runner
+// 复用预装 Chrome，避免依赖 Playwright 浏览器下载；未设置时行为不变。
+const channel = process.env.PLAYWRIGHT_CHANNEL;
+const browser = await chromium.launch(channel ? { channel } : {});
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
 });
