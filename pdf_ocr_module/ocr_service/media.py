@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import warnings
 import threading
 
@@ -12,11 +13,23 @@ class MediaError(ValueError):
     pass
 
 
-def safe_path(storage: Path, key: str):
-    path = (storage / key).resolve()
-    if not path.is_relative_to(storage.resolve()):
+def safe_path(storage: Path, key: str) -> Path:
+    """Lexical containment check; never resolve Windows 8.3 short names.
+
+    Path.resolve() expands short names through a process-global cache, which
+    can differ between concurrent calls and spuriously reject a valid key.
+    Keys are server-generated, so a deterministic lexical check is sufficient.
+    """
+    if not key or "\x00" in key:
         raise MediaError("invalid_storage_key")
-    return path
+    drive, _ = os.path.splitdrive(key)
+    if drive or os.path.isabs(key):
+        raise MediaError("invalid_storage_key")
+    root = Path(os.path.abspath(os.path.normpath(str(storage))))
+    candidate = Path(os.path.abspath(os.path.normpath(os.path.join(str(root), key))))
+    if candidate == root or root not in candidate.parents:
+        raise MediaError("invalid_storage_key")
+    return candidate
 
 
 def inspect_media(path, settings):

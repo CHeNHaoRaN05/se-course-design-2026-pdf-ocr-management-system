@@ -21,7 +21,7 @@ def authorization(settings, subject="lab-member", role="user"):
 @pytest.fixture
 def service(tmp_path):
     settings = Settings(database_url="sqlite:///" + (tmp_path / "inventory.sqlite3").as_posix(),
-                        storage=tmp_path, jwt_secret=secrets.token_hex(32),
+                        storage=tmp_path, development_mode=True, jwt_audience="ocr-development-only", jwt_secret=secrets.token_hex(32),
                         max_attempts=2, retry_delay_seconds=0,
                         custom_recognizer=None, handwriting_detector=None)
     app = create_app(settings)

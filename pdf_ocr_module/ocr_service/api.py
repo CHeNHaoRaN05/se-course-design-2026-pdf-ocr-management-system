@@ -6,8 +6,9 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, FastAPI, File as UploadField, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import func, select, text, update
+from sqlalchemy import String, cast, func, select, text, update
 
+from .accounting import settle_terminal
 from .auth import current_user, editor, owned
 from .config import Settings
 from .db import Audit, Base, File, Job, Page, TextIndex, audit, database, now, uid
@@ -23,6 +24,16 @@ router = APIRouter(prefix="/api/v1/ocr", tags=["OCR"])
 
 def db(request: Request):
     with request.app.state.ocr_sessions() as session:
+        if getattr(request.app.state, "ocr_hosted", False):
+            from backend.models import File as HostFile
+            file_id = request.path_params.get("file_id")
+            if "job_id" in request.path_params:
+                job = session.get(Job, request.path_params["job_id"])
+                file_id = job.file_id if job else None
+            if file_id:
+                host_file = session.get(HostFile, file_id)
+                if host_file is None or host_file.deleted_at is not None:
+                    raise HTTPException(404, "Resource not found")
         yield session
 
 
@@ -39,7 +50,7 @@ def job_view(session, job):
     success = sum(p.status == "succeeded" for p in pages)
     return dict(id=job.id, file_id=job.file_id, status=job.status, options=job.options, attempts=job.attempts,
                 progress=dict(total=len(pages), succeeded=success, failed=sum(p.status == "failed" for p in pages),
-                              percent=round(100 * success / len(pages), 1)),
+                              percent=round(100 * success / len(pages), 1) if pages else 0),
                 pages=[dict(page_no=p.page_no, status=p.status, error=p.error) for p in pages],
                 created_at=job.created_at, finished_at=job.finished_at)
 
@@ -56,6 +67,8 @@ def capabilities(request: Request, user=Depends(current_user)):
 @router.post("/files", status_code=201, response_model=FileOut)
 def upload(request: Request, file: UploadFile = UploadField(...), session=Depends(db), user=Depends(editor)):
     cfg = request.app.state.ocr_settings
+    if getattr(request.app.state, "ocr_hosted", False):
+        raise HTTPException(409, "Upload through /api/v1/files")
     ident = uid()
     key = f"uploads/{ident}.bin"
     path = safe_path(cfg.storage, key)
@@ -102,6 +115,9 @@ def file_content(file_id: str, request: Request, session=Depends(db), user=Depen
 
 @router.post("/jobs", status_code=202, response_model=JobOut)
 def create_job(body: JobCreate, request: Request, session=Depends(db), user=Depends(editor)):
+    if getattr(request.app.state, "ocr_hosted", False):
+        from backend.core.principal import Principal, owned_file
+        owned_file(session, body.file_id, Principal(user.user_id, user.role))
     file = owned(session.get(File, body.file_id), user)
     cfg = request.app.state.ocr_settings
     if body.mode == "handwriting" and not (cfg.handwriting_detector and cfg.handwriting_detector.is_file()):
@@ -121,6 +137,8 @@ def create_job(body: JobCreate, request: Request, session=Depends(db), user=Depe
     request.app.state.ocr_before_enqueue(session, user, file, pages)
     options = body.model_dump(exclude={"file_id"})
     options["pages"] = pages
+    if "ocr_reservation" in session.info:
+        options["_quota"] = session.info.pop("ocr_reservation")
     job = Job(id=job_id, file_id=file.id, owner_id=file.owner_id, options=options, generation=file.generation)
     session.add(job)
     session.flush()
@@ -131,8 +149,11 @@ def create_job(body: JobCreate, request: Request, session=Depends(db), user=Depe
 
 
 @router.get("/jobs", response_model=list[JobOut])
-def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), session=Depends(db), user=Depends(current_user)):
+def list_jobs(request: Request, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=10000), session=Depends(db), user=Depends(current_user)):
     query = select(Job)
+    if getattr(request.app.state, "ocr_hosted", False):
+        from backend.models import File as HostFile
+        query = query.join(HostFile, HostFile.id == Job.file_id).where(HostFile.deleted_at.is_(None))
     if user.role != "admin":
         query = query.where(Job.owner_id == user.user_id)
     return [job_view(session, j) for j in session.scalars(query.order_by(Job.created_at.desc(), Job.id).limit(limit).offset(offset))]
@@ -151,6 +172,8 @@ def cancel(job_id: str, session=Depends(db), user=Depends(editor)):
     if not changed.rowcount:
         raise HTTPException(409, "Job is already terminal")
     release_file(session, job)
+    session.flush()
+    settle_terminal(session, job)
     audit(session, user.user_id, "job_cancelled", job_id)
     session.commit()
     return job_view(session, job)
@@ -158,24 +181,17 @@ def cancel(job_id: str, session=Depends(db), user=Depends(editor)):
 
 @router.post("/jobs/{job_id}/retry", status_code=202, response_model=JobOut)
 def retry(job_id: str, request: Request, session=Depends(db), user=Depends(editor)):
-    job = owned(session.get(Job, job_id), user)
-    changed = session.execute(update(Job).where(Job.id == job_id, Job.status.in_(["failed", "partial_success"])).values(
-        status="queued", attempts=0, available_at=now(), finished_at=None))
-    if not changed.rowcount:
+    job = owned(locked_row(session, Job, Job.id == job_id), user)
+    if job.status not in {"failed", "partial_success"}:
         raise HTTPException(409, "Only failed or partially successful jobs may be retried")
-    file = session.get(File, job.file_id)
-    changed = session.execute(update(File).where(File.id == file.id, File.active_job_id.is_(None),
-        File.generation == job.generation).values(active_job_id=job_id))
-    if not changed.rowcount:
-        raise HTTPException(409, "File has an active or newer job; create a new job for failed pages")
-    # Old successful pages may have been superseded by a newer job. Do not overwrite them on retry.
-    failed = session.scalars(select(Page).where(Page.job_id == job_id, Page.status != "succeeded")).all()
-    request.app.state.ocr_before_enqueue(session, user, file, [p.page_no for p in failed])
-    for page in failed:
-        page.status, page.error = "pending", None
-    audit(session, user.user_id, "job_retried", job_id)
-    session.commit()
-    return job_view(session, job)
+    failed = session.scalars(select(Page.page_no).where(Page.job_id == job_id, Page.status != "succeeded")).all()
+    if not failed:
+        raise HTTPException(409, "No failed pages to retry")
+    settle_terminal(session, job)
+    options = {k: v for k, v in job.options.items() if k in JobCreate.model_fields and k != "pages"}
+    options.update(file_id=job.file_id, pages=failed)
+    return create_job(JobCreate(**options), request, session, user)
+
 
 
 @router.get("/jobs/{job_id}/pages", response_model=list[PageOut])
@@ -199,6 +215,8 @@ def page_image(job_id: str, page_no: int, request: Request, session=Depends(db),
     page = session.scalar(select(Page).where(Page.job_id == job_id, Page.page_no == page_no))
     if not page or page.status != "succeeded":
         raise HTTPException(404, "Page image is not available")
+    if not isinstance(page.result, dict) or not isinstance(page.result.get("image_key"), str):
+        raise HTTPException(422, "Stored result lacks a page image")
     return FileResponse(safe_path(request.app.state.ocr_settings.storage, page.result["image_key"]),
                         media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
@@ -218,12 +236,20 @@ def correct(job_id: str, page_no: int, body: Correction, session=Depends(db), us
     index = locked_row(session, TextIndex, TextIndex.file_id == job.file_id, TextIndex.page_no == page_no)
     if not index or index.job_id != job_id:
         raise HTTPException(409, "Page has been superseded by a newer result")
+    from .result_validation import validate_result
+    try:
+        validate_result(page.result, require_geometry=True)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     data = dict(page.result)
     data["blocks"] = [b.model_dump() for b in body.blocks]
     data["text"] = "\n".join(b.text for b in body.blocks)
     data["corrected"] = True
-    for table in data.get("tables", []):
-        table["cells"] = assign_cells(table, data["blocks"], data["width"], data["height"])
+    try:
+        for table in data.get("tables", []):
+            table["cells"] = assign_cells(table, data["blocks"], data["width"], data["height"])
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     changed = session.execute(update(Page).where(Page.id == page.id, Page.revision == body.expected_revision).values(
         result=data, revision=body.expected_revision + 1))
     if not changed.rowcount:
@@ -240,7 +266,13 @@ def export(job_id: str, format: Literal["txt", "json", "csv", "html", "xlsx"] = 
            allow_partial: bool = False, pages: list[int] | None = Query(None, max_length=100),
            include_coordinates: bool = True, session=Depends(db), user=Depends(current_user)):
     job = owned(session.get(Job, job_id), user)
-    selected = session.scalars(select(Page).where(Page.job_id == job_id).order_by(Page.page_no)).all()
+    selection = [Page.job_id == job_id]
+    if pages is not None:
+        selection.append(Page.page_no.in_(pages))
+    stored_size = session.scalar(select(func.sum(func.length(cast(Page.result, String)))).where(*selection)) or 0
+    if stored_size > 2 * 1024 * 1024:
+        raise HTTPException(413, "Export too large; select fewer pages")
+    selected = session.scalars(select(Page).where(*selection).order_by(Page.page_no)).all()
     if pages is not None:
         if not pages or not set(pages).issubset({p.page_no for p in selected}):
             raise HTTPException(422, "Export pages must belong to this job")
@@ -249,7 +281,10 @@ def export(job_id: str, format: Literal["txt", "json", "csv", "html", "xlsx"] = 
     if not good or (not allow_partial and (len(good) != len(selected)
                                           or (pages is None and job.status != "succeeded"))):
         raise HTTPException(409, "Result incomplete; use allow_partial=true to export successful pages")
-    data, media = export_pages(good, format, include_coordinates=include_coordinates)
+    try:
+        data, media = export_pages(good, format, include_coordinates=include_coordinates)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     audit(session, user.user_id, "result_exported", job_id, format=format, pages=len(good))
     file = session.get(File, job.file_id)
     # RFC 5987 UTF-8 filename; never interpolate an uploaded name into raw headers.
@@ -262,19 +297,25 @@ def export(job_id: str, format: Literal["txt", "json", "csv", "html", "xlsx"] = 
 
 
 @router.get("/search", response_model=SearchOut)
-def search(q: str = Query(min_length=1, max_length=100), limit: int = Query(20, ge=1, le=100),
-           offset: int = Query(0, ge=0), session=Depends(db), user=Depends(current_user)):
+def search(request: Request, q: str = Query(min_length=1, max_length=100), limit: int = Query(20, ge=1, le=100),
+           offset: int = Query(0, ge=0, le=10000), session=Depends(db), user=Depends(current_user)):
     q = q.strip()
     if not q:
         raise HTTPException(422, "Empty search query")
+    if getattr(request.app.state, "ocr_hosted", False):
+        from backend.modules.search.service import search as host_search
+        from backend.core.principal import Principal
+        backend, items = host_search(session, Principal(user.user_id, user.role), q, limit=limit, offset=offset)
+        return dict(backend=backend, items=items)
     query = select(TextIndex, File.name).join(File, TextIndex.file_id == File.id)
     if user.role != "admin":
         query = query.where(File.owner_id == user.user_id)
     if session.bind.dialect.name == "mysql" and len(q) >= 2:
         query = query.where(text("MATCH(pdf_text_index.content) AGAINST (:q IN NATURAL LANGUAGE MODE) > 0")).params(q=q)
+        query = query.where(text("LOCATE(CAST(:q AS BINARY), CAST(pdf_text_index.content AS BINARY)) > 0")).params(q=q)
         backend = "mysql_ngram"
     else:
-        query = query.where(TextIndex.content.contains(q, autoescape=True))
+        query = query.where(func.instr(TextIndex.content, q) > 0)
         backend = "substring"
     rows = session.execute(query.order_by(TextIndex.updated_at.desc(), TextIndex.id).limit(limit).offset(offset)).all()
     return dict(backend=backend, items=[dict(file_id=i.file_id, file_name=name, page_no=i.page_no,
@@ -291,7 +332,7 @@ def usage(session=Depends(db), user=Depends(current_user)):
 
 
 @router.get("/audit")
-def audit_log(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), session=Depends(db), user=Depends(current_user)):
+def audit_log(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=10000), session=Depends(db), user=Depends(current_user)):
     query = select(Audit).where(Audit.actor_id == user.user_id).order_by(Audit.created_at.desc(), Audit.id).limit(limit).offset(offset)
     return [{k: getattr(row, k) for k in ("action", "resource_id", "detail", "created_at")} for row in session.scalars(query)]
 
@@ -310,6 +351,9 @@ def create_app(settings: Settings | None = None):
     async def lifespan(app):
         yield
         app.state.ocr_engine.dispose()
+    settings = settings or Settings()
+    if not settings.development_mode:
+        raise ValueError("Standalone API is development-only; use the host API for authentication and quota")
     app = FastAPI(title="PDF 系统 OCR 独立模块", version="1.0.0", lifespan=lifespan)
     install(app, settings or Settings())
     return app

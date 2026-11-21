@@ -1,3 +1,5 @@
+> 2026-11-14 校订：当前 03 线状态及测试证据见仓库 `docs/line03-review-20261114.md`，接口清单见 `docs/route-inventory.md`；下文旧里程碑和历史测试数字不代表当前验收。
+
 # 统一开发环境配置
 
 > 本文所有版本号与输出均在本机**实测通过**，不是照抄 README。
@@ -70,7 +72,7 @@
 ### 3.1 主系统
 
 ```bash
-cd /c/Users/Administrator/Desktop/se_course_design/pdf_system
+cd /c/path/to/se_course_design/pdf_system
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install --upgrade pip
 .venv/Scripts/python.exe -m pip install -r requirements.txt
@@ -96,7 +98,7 @@ PY="D:/miniconda3/envs/ocrpaddle/python.exe"
 ### 3.3 模型权重
 
 ```bash
-cd /c/Users/Administrator/Desktop/se_course_design/pdf_ocr_module
+cd /c/path/to/se_course_design/pdf_ocr_module
 "D:/miniconda3/envs/ocrpaddle/python.exe" -m ocr_service download-models
 ```
 
@@ -165,7 +167,7 @@ PY="D:/miniconda3/envs/ocrpaddle/python.exe"
 而 **MySQL 只统计真正变化的行** → worker 无法提交结果、校对恒 409。
 
 **SQLite 不受影响**，所以开发期用 SQLite 能正常跑（见第 5 节实测）。
-但一旦切 MySQL 演示，这个缺陷会直接让 OCR 链路瘫痪。归黄，**P0**。
+> 历史风险已在 2026-11-14 修复并完成 MySQL 实库回归；不要将 no-op rowcount 一概等同于失败。
 
 ### 4.4 首次启动 worker 较慢
 
@@ -182,7 +184,7 @@ paddle 首次加载会编译 C++ 扩展（日志出现 `No ccache found` 警告�
 ### 5.1 起主系统
 
 ```bash
-cd /c/Users/Administrator/Desktop/se_course_design/pdf_system
+cd /c/path/to/se_course_design/pdf_system
 .venv/Scripts/python.exe -m uvicorn backend.main:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
@@ -238,9 +240,9 @@ curl -s http://127.0.0.1:8000/api/v1/quota/overview -H "Authorization: Bearer $T
 ### 5.4 起 worker（另开终端）
 
 ```bash
-cd /c/Users/Administrator/Desktop/se_course_design/pdf_ocr_module
-export OCR_DATABASE_URL="sqlite:///C:/Users/Administrator/Desktop/se_course_design/pdf_system/data/dev.sqlite3"
-export OCR_STORAGE="C:/Users/Administrator/Desktop/se_course_design/pdf_system/data/storage"
+cd /c/path/to/se_course_design/pdf_ocr_module
+export OCR_DATABASE_URL="sqlite:///C:/path/to/se_course_design/pdf_system/data/dev.sqlite3"
+export OCR_STORAGE="C:/path/to/se_course_design/pdf_system/data/storage"
 export OCR_JWT_SECRET="$(grep '^PDF_JWT_SECRET=' ../pdf_system/.env | cut -d= -f2-)"
 export OCR_DEVICE=cpu
 "D:/miniconda3/envs/ocrpaddle/python.exe" -m ocr_service worker

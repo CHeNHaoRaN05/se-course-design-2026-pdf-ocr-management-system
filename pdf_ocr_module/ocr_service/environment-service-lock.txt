@@ -41,7 +41,7 @@ pyclipper==1.4.0
 pydantic==2.14.1
 pydantic_core==2.50.1
 PyJWT==2.10.1
-PyMySQL==1.1.1
+PyMySQL[rsa]==1.1.1
 pyparsing==3.3.3
 pypdf==5.6.0
 pypdfium2==5.14.0

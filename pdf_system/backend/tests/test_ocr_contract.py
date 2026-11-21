@@ -8,15 +8,14 @@ from sqlalchemy import func, select
 
 from .conftest import auth, make_env, png_bytes, register
 
-pytest.importorskip("cv2", reason="需要 opencv 才能导入 ocr_service.tables")
+import cv2  # required CI dependency; missing dependency must fail collection
 
 
 @pytest.fixture
 def ocr_env(tmp_path):
     """配额压到 1 页，便于直接触发 429。"""
     settings, app, client = make_env(tmp_path, monthly_page_quota=1)
-    if not getattr(app.state, "ocr_mounted", False):
-        pytest.skip(f"OCR 模块未挂载：{settings.ocr_package_dir}")
+    assert app.state.ocr_mounted, f"OCR 模块未挂载：{settings.ocr_package_dir}"
     return settings, app, client
 
 

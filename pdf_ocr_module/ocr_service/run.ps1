@@ -17,6 +17,12 @@ if (!$env:OCR_JWT_SECRET) {
     }
     $env:OCR_JWT_SECRET = [System.IO.File]::ReadAllText($OcrSecretFile).Trim()
 }
+if ($Action -in @('api', 'token')) {
+    if ($env:OCR_DEVELOPMENT_MODE -ne '1') {
+        throw 'Standalone API/token are development-only. Set OCR_DEVELOPMENT_MODE=1 with an isolated development key, or use the host API.'
+    }
+    $env:OCR_JWT_AUDIENCE = 'ocr-development-only'
+}
 switch ($Action) {
     'init' { & $OcrPython -m ocr_service init-db }
     'api' { & $OcrPython -m uvicorn ocr_service.api:create_app --factory --host 127.0.0.1 --port 8000 }

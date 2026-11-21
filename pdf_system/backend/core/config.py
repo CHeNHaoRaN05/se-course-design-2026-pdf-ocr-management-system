@@ -55,6 +55,11 @@ class Settings(BaseSettings):
             "OCR_STORAGE": str(self.ocr_storage_dir),
             "OCR_JWT_SECRET": self.jwt_secret,
             "OCR_DEVICE": self.ocr_device,
+            "OCR_JWT_ISSUER": self.jwt_issuer,
+            "OCR_JWT_AUDIENCE": self.jwt_audience,
+            "OCR_MAX_UPLOAD_BYTES": str(self.max_upload_bytes),
+            "OCR_MAX_PAGES": str(self.max_pages),
+            "OCR_MAX_PIXELS": str(self.max_pixels),
         }
 
 
@@ -67,5 +72,10 @@ def validate(settings: Settings) -> None:
     """启动自检：把配置错误挡在启动期，而不是第一次请求。"""
     if len(settings.jwt_secret) < 32:
         raise RuntimeError("PDF_JWT_SECRET 未设置或短于 32 字符；OCR 模块会拒绝启动")
+    for name in ("jwt_expire_minutes", "max_upload_bytes", "max_pages", "max_pixels", "monthly_page_quota"):
+        if getattr(settings, name) <= 0:
+            raise RuntimeError(f"PDF_{name.upper()} must be positive")
+    if settings.ocr_storage_dir.resolve() != settings.storage_dir.resolve():
+        raise RuntimeError("OCR and host must use the same storage directory")
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
     settings.ocr_storage_dir.mkdir(parents=True, exist_ok=True)

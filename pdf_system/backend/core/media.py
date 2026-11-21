@@ -5,6 +5,7 @@
 任何一侧修改校验规则时都必须同步另一侧（契约 C2）。
 """
 import hashlib
+import os
 import threading
 import warnings
 from pathlib import Path
@@ -20,10 +21,22 @@ class MediaError(ValueError):
 
 
 def safe_path(storage: Path, key: str) -> Path:
-    path = (storage / key).resolve()
-    if not path.is_relative_to(storage.resolve()):
+    """词法校验存储键，不解析 Windows 8.3 短名。
+
+    Path.resolve() 依赖进程级短名缓存；并发上传时同一目录可能先后解析成
+    C:\\Users\\ADMINI~1 与 C:\\Users\\Administrator，导致 is_relative_to 误抛
+    invalid_storage_key（422）。key 由服务端生成，这里只做确定性的词法检查。
+    """
+    if not key or "\x00" in key:
         raise MediaError("invalid_storage_key")
-    return path
+    drive, _ = os.path.splitdrive(key)
+    if drive or os.path.isabs(key):
+        raise MediaError("invalid_storage_key")
+    root = Path(os.path.abspath(os.path.normpath(str(storage))))
+    candidate = Path(os.path.abspath(os.path.normpath(os.path.join(str(root), key))))
+    if candidate == root or root not in candidate.parents:
+        raise MediaError("invalid_storage_key")
+    return candidate
 
 
 def inspect_media(path: Path, *, max_pages: int, max_pixels: int) -> tuple[str, int]:

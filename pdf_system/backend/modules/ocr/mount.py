@@ -1,65 +1,101 @@
-"""把独立 OCR 模块挂进主系统（负责人：丙）。
-
-要点：
-  1. 先把主系统配置注入为 OCR_* 环境变量，保证两侧同库、同存储、同密钥；
-  2. 用 dependency_overrides 让 OCR 复用主系统的登录解析（停用用户立即失效）；
-  3. 传入 before_enqueue 配额钩子；
-  4. 缺 Paddle 环境时降级为「未挂载」，主系统其余功能照常可用。
-"""
+"""Mount OCR with explicit configuration, rollback and terminal reconciliation."""
+import asyncio
+from contextlib import asynccontextmanager
 import logging
-import os
 import sys
 from pathlib import Path
-
-from fastapi import Depends, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials
+from fastapi import Depends
 
 log = logging.getLogger(__name__)
 
 
-def mount_ocr(app, settings) -> bool:
-    from .bridge import set_ready
+def reconcile_terminal(sessions):
+    from sqlalchemy import exists, select
+    from ocr_service.db import Job
+    from ocr_service.accounting import settle_terminal
+    from ...models import QuotaLedger
+    with sessions() as session:
+        ids = session.scalars(select(Job.id).where(
+            Job.status.in_(["succeeded", "partial_success", "failed", "cancelled"]),
+            ~exists(select(QuotaLedger.id).where(QuotaLedger.ref_id == Job.id,
+                                                QuotaLedger.reason == "job_close"))).limit(100)).all()
+    for ident in ids:
+        try:
+            with sessions.begin() as session:
+                job = session.get(Job, ident)
+                if job:
+                    settle_terminal(session, job)
+        except Exception:
+            log.exception("Quota reconciliation failed for job=%s", ident)
 
+
+def mount_ocr(app, settings):
+    from .bridge import set_ready
     set_ready(False)
     if not settings.ocr_enabled:
-        log.info("OCR 模块已在配置中关闭")
         return False
-
-    package_dir = Path(settings.ocr_package_dir)
-    if not (package_dir / "ocr_service").is_dir():
-        log.warning("未找到 OCR 模块目录：%s", package_dir / "ocr_service")
+    package_dir = str(Path(settings.ocr_package_dir).resolve())
+    if not (Path(package_dir) / "ocr_service").is_dir():
+        log.warning("OCR package unavailable: %s", package_dir)
         return False
-
-    sys.path.insert(0, str(package_dir))
-    for key, value in settings.ocr_env().items():
-        os.environ[key] = value  # 覆盖，避免遗留环境变量造成两侧漂移
-
+    added = package_dir not in sys.path
+    routes, overrides = list(app.router.routes), dict(app.dependency_overrides)
+    prior_state = dict(app.state._state)
+    if added:
+        sys.path.insert(0, package_dir)
     try:
         from ocr_service.api import install
-        from ocr_service.auth import current_user as ocr_current_user
+        from ocr_service.auth import current_user as ocr_current_user, Principal as OcrPrincipal
         from ocr_service.config import Settings as OcrSettings
-        from ocr_service.schemas import JobCreate  # noqa: F401  仅用于确认包可用
-    except Exception as exc:  # Paddle / 依赖缺失时必须让主系统继续启动
-        log.warning("OCR 模块加载失败，已降级：%s", exc)
-        return False
-
-    from ...core.principal import bearer, resolve_principal
-    from .quota import make_before_enqueue
-
-    ocr_settings = OcrSettings()
-    ocr_settings.jwt_secret = settings.jwt_secret
-    install(app, ocr_settings, before_enqueue=make_before_enqueue(settings))
-
-    def host_principal(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
-        try:
+        from ...core.principal import bearer, resolve_principal
+        from fastapi import Request
+        from fastapi.security import HTTPAuthorizationCredentials
+        from .quota import make_before_enqueue
+        cfg = OcrSettings(database_url=settings.database_url, storage=settings.storage_dir.resolve(),
+            jwt_secret=settings.jwt_secret, jwt_issuer=settings.jwt_issuer, jwt_audience=settings.jwt_audience,
+            device=settings.ocr_device, max_upload_bytes=settings.max_upload_bytes,
+            max_pages=settings.max_pages, max_pixels=settings.max_pixels, development_mode=False)
+        install(app, cfg, before_enqueue=make_before_enqueue(settings))
+        def host_principal(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
             principal = resolve_principal(request, credentials)
-        except HTTPException as exc:
-            raise exc
-        from ocr_service.auth import Principal as OcrPrincipal
-        return OcrPrincipal(principal.user_id, principal.role)
-
-    app.dependency_overrides[ocr_current_user] = host_principal
-    app.state.ocr_mounted = True
-    set_ready(True)
-    log.info("OCR 模块已挂载：%s", package_dir / "ocr_service")
-    return True
+            return OcrPrincipal(principal.user_id, principal.role)
+        app.dependency_overrides[ocr_current_user] = host_principal
+        app.state.ocr_hosted = True
+        app.state.ocr_mounted = True
+        previous_lifespan = app.router.lifespan_context
+        @asynccontextmanager
+        async def lifespan(application):
+            stop = asyncio.Event()
+            async def reconcile():
+                while not stop.is_set():
+                    try:
+                        await asyncio.to_thread(reconcile_terminal, app.state.ocr_sessions)
+                    except Exception:
+                        log.exception("OCR settlement sweep failed")
+                    try:
+                        await asyncio.wait_for(stop.wait(), timeout=30)
+                    except asyncio.TimeoutError:
+                        pass
+            async with previous_lifespan(application):
+                task = asyncio.create_task(reconcile())
+                try:
+                    yield
+                finally:
+                    stop.set()
+                    await task
+        app.router.lifespan_context = lifespan
+        set_ready(True)
+        return True
+    except Exception:
+        engine = getattr(app.state, "ocr_engine", None)
+        if engine is not None and engine is not prior_state.get("ocr_engine"):
+            engine.dispose()
+        app.router.routes[:] = routes
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(overrides)
+        app.state._state.clear()
+        app.state._state.update(prior_state)
+        if added:
+            sys.path.remove(package_dir)
+        log.exception("OCR mount failed; host remains available")
+        return False

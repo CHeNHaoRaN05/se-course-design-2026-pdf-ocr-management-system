@@ -33,6 +33,8 @@ def main():
         print("OCR tables initialized (existing tables are not migrated)")
     elif args.command == "dev-token":
         import jwt
+        if not cfg.development_mode:
+            parser.error("dev-token requires OCR_DEVELOPMENT_MODE=1 and an isolated development key")
         if len(cfg.jwt_secret) < 32:
             parser.error("Set OCR_JWT_SECRET to at least 32 random characters")
         stamp = datetime.now(timezone.utc)
@@ -67,6 +69,8 @@ def main():
     elif args.command == "openapi":
         from .api import create_app
         # Schema generation has no authentication side effect and never issues a token.
+        cfg.development_mode = True
+        cfg.jwt_audience = "ocr-development-only"
         cfg.jwt_secret = "schema-generation-only-" + "x" * 32
         app = create_app(cfg)
         destination = Path(__file__).parent / "docs/openapi.json"

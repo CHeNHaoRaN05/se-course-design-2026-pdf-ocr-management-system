@@ -22,10 +22,18 @@ class PaddleBackend:
         self.paddle.set_device(settings.device)
         self.recognizers = {}
         self.detector = None
+        self._verified_weights = set()
 
     def strict_load(self, model, weights):
         if not weights.is_file():
             raise FileNotFoundError(f"Model not installed: {weights}")
+        if weights not in self._verified_weights:
+            from .model_files import verify_file
+            manifest = json.loads((PACKAGE_ROOT / "models/manifest.json").read_text(encoding="utf-8"))
+            for name, official in (("detector", self.cfg.detector_weights), ("recognizer", self.cfg.recognizer_weights)):
+                if weights == official:
+                    verify_file(weights, manifest[name]["sha256"])
+            self._verified_weights.add(weights)
         state = self.paddle.load(str(weights))
         expected = model.state_dict()
         if set(state) != set(expected) or any(list(state[k].shape) != list(expected[k].shape) for k in expected):
@@ -146,9 +154,11 @@ class PaddleBackend:
                 bbox=[float(box[:,0].min()/width), float(box[:,1].min()/height),
                       float(box[:,0].max()/width), float(box[:,1].max()/height)],
                 needs_review=confidence < options["min_confidence"]))
+        table_warnings = []
+        tables = ruled_tables(image, blocks, table_warnings) if options["tables"] else []
         return dict(width=width, height=height, blocks=blocks, text="\n".join(b["text"] for b in blocks),
-                    tables=ruled_tables(image, blocks) if options["tables"] else [],
+                    tables=tables,
                     corrected=False, mode=options["mode"], recognition_model=options["recognition_model"],
-                    warnings=["Low-confidence text is preserved for correction; all OCR output may contain errors"] +
+                    warnings=table_warnings + ["Low-confidence text is preserved for correction; all OCR output may contain errors"] +
                     (["Only regular ruled grids supported; no grid found does not mean there is no table"] if options["tables"] else []))
 

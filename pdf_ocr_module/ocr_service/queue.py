@@ -5,6 +5,7 @@ from sqlalchemy import and_, or_, select, update
 
 from .db import File, Job, Page, TextIndex, audit, now, uid
 from .locking import locked_row
+from .accounting import settle_terminal
 
 TERMINAL = {"succeeded", "partial_success", "failed", "cancelled"}
 
@@ -22,6 +23,8 @@ def finish_exhausted(session, job):
     job.status = "succeeded" if success == len(pages) else ("partial_success" if success else "failed")
     job.finished_at, job.lease_token, job.lease_until = now(), None, None
     release_file(session, job)
+    session.flush()
+    settle_terminal(session, job)
 
 
 def claim(session_factory, cfg):
@@ -52,10 +55,16 @@ def claim(session_factory, cfg):
 
 def heartbeat(session_factory, cfg, job_id, token):
     with session_factory.begin() as session:
-        stamp = now()
-        changed = session.execute(update(Job).where(Job.id == job_id, Job.status == "running",
-            Job.lease_token == token, Job.lease_until > stamp).values(lease_until=stamp + timedelta(seconds=cfg.lease_seconds)))
-        return bool(changed.rowcount)
+        job = locked_job(session, job_id, token)
+        if job is None:
+            return False
+        # Round UP for existing MySQL DATETIME(0) tables. Same-second heartbeat
+        # need not change a value: a valid, locked lease is the success criterion.
+        target = now() + timedelta(seconds=cfg.lease_seconds)
+        if target.microsecond:
+            target = target.replace(microsecond=0) + timedelta(seconds=1)
+        job.lease_until = max(job.lease_until, target)
+        return True
 
 
 def locked_job(session, job_id, token):
@@ -74,15 +83,21 @@ def write_index(session, job, page):
 
 
 def save_page(session_factory, job_id, token, page_no, result=None, error=None):
+    if error is not None and (not isinstance(error, str) or not error.strip()):
+        raise ValueError("Page error must be a nonempty string")
+    if error is None and (not isinstance(result, dict) or not isinstance(result.get("text"), str)):
+        raise ValueError("A page needs a text result or an error")
     with session_factory.begin() as session:
         job = locked_job(session, job_id, token)
         if job is None:
             return False
         page = session.scalar(select(Page).where(Page.job_id == job_id, Page.page_no == page_no))
+        if page is None:
+            return False
         if page.status == "succeeded":
             return True
         if error:
-            page.status, page.error = "failed", error
+            page.status, page.error = "failed", error[:80]
         else:
             page.status, page.error = "succeeded", None
             page.result, page.revision = result, page.revision + 1
