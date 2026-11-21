@@ -80,7 +80,8 @@ jobs:
     env:
       # ubuntu runner 预装 Google Chrome；用预装浏览器跑 e2e，避免依赖 Playwright 浏览器下载。
       # Windows 保持空值（走默认 chromium-headless-shell）。
-      PLAYWRIGHT_CHANNEL: ${{ runner.os == 'Linux' && 'chrome' || '' }}
+      # 注意：job 级 env 只能用 matrix 上下文，不能用 runner（否则 workflow 校验失败、0 job）。
+      PLAYWRIGHT_CHANNEL: ${{ matrix.os == 'ubuntu-latest' && 'chrome' || '' }}
     defaults:
       run:
         working-directory: pdf_system/frontend
