@@ -77,6 +77,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # ubuntu runner 预装 Google Chrome；用预装浏览器跑 e2e，避免依赖 Playwright 浏览器下载。
+      # Windows 保持空值（走默认 chromium-headless-shell）。
+      PLAYWRIGHT_CHANNEL: ${{ runner.os == 'Linux' && 'chrome' || '' }}
     defaults:
       run:
         working-directory: pdf_system/frontend
@@ -94,6 +98,8 @@ jobs:
           python -m pip install -r ../requirements.txt
       - name: Install Chromium with Linux system dependencies
         if: runner.os == 'Linux'
+        # 下载失败不阻断：e2e 已通过 PLAYWRIGHT_CHANNEL=chrome 复用 runner 预装 Chrome。
+        continue-on-error: true
         run: npx playwright install --with-deps chromium-headless-shell
       - name: Install Chromium on Windows
         if: runner.os == 'Windows'
