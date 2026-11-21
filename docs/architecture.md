@@ -1,10 +1,9 @@
-> 接口统计提示：下文固定数量是历史基线；当前完整装配的59条路径/68个HTTP操作以自动生成的api-contract.yaml为准。
-
 # 架构概览：接口总表与调用关系
 
 > 项目：基于本地 OCR 的 PDF 文件显示与管理系统
 > 配套文档：[`api-contract.yaml`](api-contract.yaml)（接口契约）、[`development-baseline.md`](development-baseline.md)（公共限制与分工）、[`team/backend.md`](team/backend.md)（各线详细分工与跨线接口）、[`CONTRIBUTING.md`](../CONTRIBUTING.md)（怎么协作）、[`pdf_system/docs/ARCHITECTURE.md`](../pdf_system/docs/ARCHITECTURE.md)（详细设计）
 > 本文档面向「接手代码的人」，只回答两个问题：**有哪些接口**、**谁调用谁**。
+> 范围口径：按最小必须功能集（上传/下载/显示/管理 + OCR 跑通）；范围外功能见 `features.md:1.2`，不计入验收。
 
 ---
 
@@ -14,20 +13,20 @@
 
 | 进程 | 技术栈 | Python | 端口 | 职责 | 是否提供 HTTP |
 |---|---|---|---|---|---|
-| **主系统 API** | FastAPI + SQLAlchemy | 3.12 / 3.13 / 3.14 均可 | `8000` | 用户权限、文件管理、阅读器；**OCR 的 17 个接口也挂载在它内部** | ✅ |
+| **主系统 API** | FastAPI + SQLAlchemy | 3.12 / 3.13 / 3.14 均可 | `8000` | 用户权限、文件管理、PDF 显示、检索、分享；**OCR 接口挂载在它内部** | ✅ |
 | **OCR worker** | `ocr_service` + PaddleOCR | **必须 ≤ 3.13（官方口径 3.12）** | 无 | 轮询数据库取任务、跑识别、回写结果 | ❌ |
 | **前端** | React + Vite + pdf.js | — | `5173` | 页面；`vite.config.ts` 把 `/api` 代理到 `8000` | — |
-| MySQL 8.0 / SQLite | — | — | `3306` / 文件 | 持久化 | — |
+| SQLite / MySQL 8.0 | — | — | `3306` / 文件 | 持久化（演示以 SQLite 为准） | — |
 | 文件系统 | — | — | — | `pdf_system/data/storage`，两个进程**共用同一目录** | — |
 
 **关键点：OCR 模块不是独立的 Web 服务。**
-`ocr_service.install(app, settings)`（`api.py:291`）把它的 router 挂进主系统的 FastAPI 实例，因此 OCR 接口与主系统接口**同进程、同端口、同 JWT**。
+`ocr_service.install(app, settings)`（`api.py:345`）把它的 router 挂进主系统的 FastAPI 实例，因此 OCR 接口与主系统接口**同进程、同端口、同 JWT**。
 真正独立的只有 **worker**，它不监听端口，只通过数据库与主系统通信。
 
 ```
 浏览器 ──5173──> Vite dev server ──/api 代理──> 主系统 FastAPI (8000)
-                                                  ├─ 主系统 31 个接口（含 /health 与 5 个 ocr-host）
-                                                  └─ OCR 模块 17 个接口（同进程挂载）
+                                                  ├─ 主系统接口（含 /health 与 ocr-host）
+                                                  └─ OCR 模块接口（同进程挂载）
                                                        │
                                                   共享数据库 + 共享存储目录
                                                        │
@@ -42,17 +41,17 @@
 frontend/src
   app/        App.tsx / router.tsx / Layout / AuthProvider   ← 陈
   shared/     http.ts（统一 fetch 封装）/ types.ts           ← 陈
-  features/   auth / files / reader / ocr / search           ← 按线划分
+  features/   auth / files / reader / ocr / search / share   ← 按线划分
                     │ HTTP (/api/v1)
                     ▼
 backend
-  main.py         装配：create_app() 挂 6 个 router + mount_ocr()
-  core/          底座：config / database / security / principal / media / audit / errors   ← 陈
-  models/         ORM：9 张表，共用一个 Base                                     ← 分区共管
+  main.py         装配：create_app() 挂 router + mount_ocr()
+  core/          底座：config / database / security / principal / media / errors   ← 陈
+  models/         ORM：共用一个 Base，表见 `team/database.md`                ← 分区共管
   modules/
-    auth/ quota/          ← 01 陈
+    auth/ quota/          ← 01 陈（quota 仅作 OCR 内部记账）
     files/ reader/        ← 02 岳
-    ocr/ search/          ← 03 黄
+    ocr/ search/ share/   ← 03 黄（ocr/search）+ 陈（share）
                     │ 进程内 import
                     ▼
 pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / models / 引擎）
@@ -65,17 +64,6 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 ## 3. 接口总表
 
-共 **59 个接口**（主系统 42 + OCR 模块 17）：
-
-| 归属 | 数量 | 小节 |
-|---|---|---|
-| 系统级 | 1 | 3.1 |
-| 01 线 陈（auth + quota + share） | 17 | 3.2、3.7 |
-| 02 线 岳（files + reader） | 17 | 3.3 |
-| 03 线 黄 · 主系统侧（search + ocr-host） | 7 | 3.4、3.6 |
-| 03 线 黄 · OCR 模块挂载 | 17 | 3.5 |
-| **合计** | **59** | |
-
 统一前缀 `/api/v1`。权限列含义：
 
 - `公开`：无需 token
@@ -83,11 +71,13 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 - `编辑`：需 JWT 且角色 `user`/`admin`（`viewer` 被拒）
 - `管理员`：需 JWT 且角色 `admin`
 
+> 接口总表按**最小必须功能集**给出；底层代码中残留的校对、表格、配额看板、审计、批量/合并拆分等接口不计入本表（范围外，见 `features.md:1.2`）。其中批量/合并拆分已在 PR #9 实现，合入后需同步补入本表。
+
 ### 3.1 系统级
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| GET | `/health` | 公开 | `{"status","ocr_mounted","database"}`，部署自检用 |
+| GET | `/health` | 公开 | `{"status","ocr_mounted","database"}`，自检用 |
 
 ### 3.2 01 线：用户与权限（陈）
 
@@ -97,29 +87,27 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 | POST | `/auth/login` | 公开 | 登录，返回 token |
 | GET | `/auth/me` | 用户 | 当前用户 |
 | GET | `/auth/_admin/check` | 管理员 | 管理员自检端点 |
-| GET | `/quota` | 用户 | 我的配额 |
-| GET | `/quota/overview` | 用户 | 配额统计概览（统计看板后端数据源，前端页 `features/stats/StatsPage.tsx` 已落地，FR-QTA-04） |
-| PATCH | `/auth/users/{user_id}/role` | 管理员 | 修改指定用户角色（FR-USER-03，user/viewer/admin） |
-| PATCH | `/auth/users/{user_id}/disabled` | 管理员 | 管理员禁用/解禁账号；禁用后其所有令牌立即失效（FR-USER-04） |
-| POST | `/auth/logout` | 用户 | 单点登出，吊销当前令牌（FR-USER-01；其他会话不受影响） |
-| POST | `/auth/refresh` | 用户 | 用当前令牌换新令牌，旧令牌立即失效（FR-USER-01） |
-| POST | `/auth/change-password` | 用户 | 修改密码；成功后全部旧令牌失效并返回新令牌（FR-USER-02） |
+| PATCH | `/auth/users/{user_id}/role` | 管理员 | 修改指定用户角色（user/viewer/admin） |
+| PATCH | `/auth/users/{user_id}/disabled` | 管理员 | 禁用/解禁账号；禁用后其所有令牌立即失效 |
+| POST | `/auth/logout` | 用户 | 登出，吊销当前令牌 |
+| POST | `/auth/refresh` | 用户 | 用当前令牌换新令牌 |
+| POST | `/auth/change-password` | 用户 | 改密；成功后全部旧令牌失效并返回新令牌 |
 
-### 3.3 02 线：文件管理与阅读器（岳）
+### 3.3 02 线：文件管理与显示（岳）
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| POST | `/files` | 编辑 | 上传（三重校验：扩展名 + MIME + 魔数） |
+| POST | `/files` | 编辑 | 上传（按内容魔数校验，含大小/页数上限、损坏与加密拒绝、同名序号） |
 | GET | `/files` | 用户 | 列表，支持 `folder` / `tag` / `q` / `limit` / `offset` |
-| GET | `/files/folders` | 用户 | 目录树 |
+| GET | `/files/folders` | 用户 | 文件夹字符串去重列表（非分类树） |
 | GET | `/files/tags` | 用户 | 全部标签 |
 | GET | `/files/{file_id}` | 用户 | 文件详情 |
-| GET | `/files/{file_id}/content` | 用户 | 原文件，支持 Range，pdf.js 带 JWT 直接请求 |
+| GET | `/files/{file_id}/content` | 用户 | 原文件内容，支持 Range；pdf.js 带 JWT 直接请求；也是下载的数据源 |
 | GET | `/files/{file_id}/pages` | 用户 | 各页尺寸（视口计算） |
-| PATCH | `/files/{file_id}` | 编辑 | 改名 / 移动 / 改标签 |
+| PATCH | `/files/{file_id}` | 编辑 | 改名 / 改文件夹 / 改标签 |
 | DELETE | `/files/{file_id}` | 编辑 | 软删除（进回收站） |
 | POST | `/files/{file_id}/restore` | 编辑 | 还原 |
-| DELETE | `/files/{file_id}/purge` | 编辑 | 彻底删除（会先取消 OCR 任务、清页 PNG） |
+| DELETE | `/files/{file_id}/purge` | 编辑 | 彻底删除（先取消 OCR 任务、清页 PNG） |
 | GET | `/files/{file_id}/reader/bookmarks` | 用户 | 书签列表 |
 | POST | `/files/{file_id}/reader/bookmarks` | 编辑 | 新增书签 |
 | DELETE | `/files/{file_id}/reader/bookmarks/{id}` | 编辑 | 删除书签 |
@@ -127,7 +115,7 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 | POST | `/files/{file_id}/reader/annotations` | 编辑 | 新增批注 |
 | DELETE | `/files/{file_id}/reader/annotations/{id}` | 编辑 | 删除批注 |
 
-> 待补（W7）：`POST /files/merge`、`POST /files/{id}/split`、`POST /files/bulk`；批注**修改**（当前只有增/删/查）。
+> 原文件下载 UI（`FilesPage.tsx` 的「下载原文件」按钮）在 PR #9，合入后 main 才具备该入口；后端 `/files/{id}/content` 与前端 `apiBlob` 已在 main。
 
 ### 3.4 03 线：主系统侧的 OCR 宿主端点（黄）
 
@@ -135,11 +123,10 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| GET | `/ocr-host/capabilities` | 用户 | 能力探测：是否挂载、存储路径、设备、月配额 |
-| GET | `/ocr-host/usage` | 用户 | 配额用量 + OCR 用量汇总 |
+| GET | `/ocr-host/capabilities` | 用户 | 能力探测：是否挂载、存储路径、设备、按页记账信息 |
 | POST | `/ocr-host/files/{file_id}/sync` | 编辑 | 手动重建镜像行（上传后镜像失败的补救） |
 | GET | `/ocr-host/files/{file_id}/jobs` | 用户 | 该文件最近一次任务，供前端跳转结果页 |
-| POST | `/ocr-host/jobs/{job_id}/settle` | 编辑 | 任务终态后结算配额（成功页计费、失败页退额度），**幂等** |
+| POST | `/ocr-host/jobs/{job_id}/settle` | 编辑 | 任务终态后内部记账结算，**幂等**；非用户可见配额功能 |
 
 > `_require_mounted()` 会在 OCR 未挂载时统一返回 **409** `OCR 模块未挂载`，而不是 500。
 
@@ -149,7 +136,7 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/ocr/capabilities` | 引擎能力（语言、设备、版本） |
+| GET | `/ocr/capabilities` | 引擎能力（设备、版本） |
 | POST | `/ocr/files` | 建镜像文件行（幂等） |
 | GET | `/ocr/files/{file_id}` | 读镜像行 |
 | GET | `/ocr/files/{file_id}/content` | 读原文件内容 |
@@ -157,30 +144,24 @@ pdf_ocr_module/ocr_service   ← 03 黄（独立子模块，自带 db.py / model
 | GET | `/ocr/jobs` | 任务列表 |
 | GET | `/ocr/jobs/{job_id}` | 任务详情 / 进度 |
 | POST | `/ocr/jobs/{job_id}/cancel` | 取消任务 |
-| POST | `/ocr/jobs/{job_id}/retry` | 重试（整任务或指定页） |
+| POST | `/ocr/jobs/{job_id}/retry` | 重试 |
 | GET | `/ocr/jobs/{job_id}/pages` | 全部页结果 |
 | GET | `/ocr/jobs/{job_id}/pages/{page_no}` | 单页结果 |
-| GET | `/ocr/jobs/{job_id}/pages/{page_no}/image` | 单页渲染图（校对时对照原图） |
-| PATCH | `/ocr/jobs/{job_id}/pages/{page_no}` | **校对保存**（带 `expected_revision`，冲突返回 409） |
 | GET | `/ocr/jobs/{job_id}/export` | 导出（TXT / JSON / CSV / HTML / XLSX） |
-| GET | `/ocr/search` | OCR 侧检索 |
-| GET | `/ocr/usage` | 用量 |
-| GET | `/ocr/audit` | OCR 侧审计日志 |
+| GET | `/ocr/search` | OCR 侧检索（内部保留；对外统一走主系统 `/search`） |
 
-> ⚠️ **数量更正**：`pdf_system/README.md` 与 `modules/ocr/router.py:3` 的注释都写「OCR 自身的 15 个接口」，
-> 实际 grep `api.py` 得到 **17 个路由**。`ocr-host` 的 5 个是另算的，不在其中。
+> 校对保存（PATCH pages）、单页渲染图（校对对照）、OCR 侧 usage/audit 属范围外，不计入本表。
 
 ### 3.6 03 线：全文检索（黄）
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| GET | `/search` | 用户 | 全文检索，`q` / `limit`；返回含 `file_id`、`page_no`、`snippet`、`job_id`、`revision` |
+| GET | `/search` | 用户 | 全文检索，`q` / `limit`；返回含 `file_id`、`page_no`、`snippet`、`job_id`、`generation` |
 | GET | `/search/suggest` | 用户 | 检索建议 |
 
-> 检索走的是**主系统表**（`search/service.py` 直接 SQL 查 `pdf_text_index` JOIN `files`），
-> 与 `/ocr/search`（OCR 模块自己的）不是同一条路径。改用哪个需要在契约里明确，避免两套检索结果不一致。
+> 检索走**主系统表**（`search/service.py` 直接 SQL 查 `pdf_text_index` JOIN `files`），是唯一对外检索口径；`/ocr/search` 仅作模块内部保留，不对外承诺。
 
-### 3.7 01 线：分享与协作（陈，FR-SHR-01/02/03）
+### 3.7 01 线：分享与协作（陈）
 
 owner 侧需 JWT；被分享者侧凭 token 旁路访问，无需 JWT（见 `core/principal.share_access`，不改 `resolve_principal` 主路径）。
 
@@ -189,11 +170,11 @@ owner 侧需 JWT；被分享者侧凭 token 旁路访问，无需 JWT（见 `cor
 | POST | `/share` | 用户 | 为自有文件创建分享链接（有效期 / 提取码 / 是否允许下载），返回 token 与分享 URL |
 | GET | `/share` | 用户 | 列出我的全部分享链接 |
 | GET | `/share/{share_id}` | 用户 | 分享详情 |
-| DELETE | `/share/{share_id}` | 用户 | 取消分享（FR-SHR-02） |
-| GET | `/share/{share_id}/stats` | 用户 | 访问统计（FR-SHR-03，含 `visit_count`） |
+| DELETE | `/share/{share_id}` | 用户 | 取消分享 |
+| GET | `/share/{share_id}/stats` | 用户 | 访问统计（含 `visit_count`） |
 | GET | `/share/token/{token}` | 公开（token） | 被分享者只读访问；`?code=` 传提取码；`allow_download=false` 时仅返回元数据 |
 
-> 分享不复制文件实体，被分享者只读；文件被彻底删除时分享链接级联清理（`share_links` 表 `ondelete=CASCADE`）。
+> 分享不复制文件实体，被分享者只读；文件被彻底删除时分享链接级联清理。
 > 错误 token / 过期 / 提取码不符统一返回 **404**，避免泄露分享是否存在。
 
 ---
@@ -205,11 +186,12 @@ owner 侧需 JWT；被分享者侧凭 token 旁路访问，无需 JWT（见 `cor
 ─────────────────────────────────────────────────────────────────────────
 LoginPage        ──login──> （内联）        ──> api<T>() ──> POST /auth/login
 FilesPage        ─────────> filesApi.ts   ──> api<T>() ──> /files/**
-ReaderPage       ─────────> readerApi.ts  ──> api<T>() ──> /files/{id}/reader/**
+                 ──下载───> fileBlob()     ──> apiBlob() ──> GET /files/{id}/content
+ReaderPage       ──渲染───> pdf.js         ──> 带 JWT 直连 /files/{id}/content
                  ─────────> ocrApi.ts     ──> api<T>() ──> /ocr/**, /ocr-host/**
-                 ──渲染───> OcrPanel / OcrOverlay（覆盖层，坐标按 C4）
+                 ─────────> OcrPanel / OcrOverlay（覆盖层，坐标按 C4）
 SearchPage       ─────────> （内联）        ──> api<T>() ──> /search
-StatsPage        ─────────> （内联）        ──> api<T>() ──> /quota/overview
+SharePage        ─────────> （内联）        ──> api<T>() ──> /share/**
 ```
 
 `shared/http.ts` 是**唯一**的请求出口，禁止各模块自己 `fetch`：
@@ -218,7 +200,7 @@ StatsPage        ─────────> （内联）        ──> api<T>
 - `apiBlob(path)`：用于导出与原文件下载 —— **不能用裸 `<a href>`**，那样带不上 JWT
 - `downloadBlob(blob, filename)`：触发下载
 
-路由共 5 条（`app/router.tsx`）：`/login`、`/files`、`/files/:fileId`、`/search`、`/stats`（统计看板，线01 陈）。
+路由：`/login`、`/files`、`/files/:fileId`、`/search`；统计看板路由 `/stats` 属范围外。
 **新增页面由陈统一注册路由**，其余人提需求。
 
 ---
@@ -229,17 +211,14 @@ StatsPage        ─────────> （内联）        ──> api<T>
 
 | 调用方 | 被调方 | 接口 | 契约 |
 |---|---|---|---|
-| 岳 `files/service.py:64` | 黄 `ocr/bridge.py` | `ensure_ocr_file(session, file)` | **C2** |
-| 岳 `files/service.py:136` | 黄 `ocr/lifecycle.py` | `cancel_tasks(session, file_id) -> int` | **C5** |
-| 岳 `files/service.py:147` | 黄 `ocr/lifecycle.py` | `purge_file(session, settings, file_id)` | **C5** |
-| 黄 `ocr/router.py:37` | 陈 `quota/service.py` | `quota_usage(session, user_id)` | — |
-| 黄 `ocr/quota.py:23,43,46` | 陈 `quota/service.py` | `reserve` / `settle` / `release` | **C3** |
-| 黄 `ocr/router.py:47` | 黄 `ocr/bridge.py` | `ensure_ocr_file` | — |
-| 陈 `ocr/router.py` | 黄 `ocr/quota.py` | `settle_job` / `release_job` | **C3** |
+| 岳 `files/service.py` | 黄 `ocr/bridge.py` | `ensure_ocr_file(session, file)` | **C2** |
+| 岳 `files/service.py` | 黄 `ocr/lifecycle.py` | `cancel_tasks(session, file_id) -> int` | **C5** |
+| 岳 `files/service.py` | 黄 `ocr/lifecycle.py` | `purge_file(session, settings, file_id)` | **C5** |
+| 黄 `ocr/quota.py` | 陈 `quota/service.py` | `reserve` / `settle` / `release` | **C3** |
+| 黄 `ocr/router.py` | 黄 `ocr/bridge.py` | `ensure_ocr_file` | — |
 | 陈 `search/service.py` | 黄 `ocr_service/db.py` | 直接 SQL 查 `pdf_text_index` | **跨模块直连，最脆** |
 | 全部 | 陈 `core/media.py` | `inspect_media` / `save_upload` / `safe_path` / `render_page` | **C2** |
 | 全部 | 陈 `core/principal.py` | `current_user` / `require_editor` / `require_admin` / `owned_file` | **C1** |
-| 全部 | 陈 `core/audit.py` | `audit(session, actor_id, action, resource_id, **detail)` | — |
 
 **最脆弱的一环**：`search/service.py` 用裸 SQL 直接查黄的表 `pdf_text_index`。
 黄改表结构 → 陈的检索直接 500，且报错不指向根因。这是 [`team/database.md`](team/database.md) 标红的共享字段之一。
@@ -252,12 +231,12 @@ StatsPage        ─────────> （内联）        ──> api<T>
 |---|---|---|---|
 | **C1** | JWT：主系统签发，OCR 模块经 `dependency_overrides` 复用 `resolve_principal` 验签 | 陈 → 黄 | 改鉴权逻辑必须先改文档 |
 | **C2** | `ensure_ocr_file()` 把 `File` 镜像为 `ocr_files`，**8 个字段逐一对齐**（含 `id` 同值） | 岳 → 黄 | `File` 加字段 = 契约变更 |
-| **C3** | 入队前 `quota.reserve()` 扣额度，终态后 `settle_job()` 结算 | 黄 → 陈 | 配额语义变更需双方确认 |
+| **C3** | 入队前按页记账（`reserve`），终态后 `settle` 结算；仅 OCR 内部记账，不承诺用户可见配额 | 黄 → 陈 | 记账语义变更需双方确认 |
 | **C4** | 覆盖层坐标：**左上原点、归一化**，批注 `payload` 与 OCR `bbox` 同口径 | 黄 → 岳 | 坐标口径一改，覆盖层全错位 |
-| **C5** | 删除前 `cancel_tasks()`，彻底删时 `purge_file()` 清页 PNG | 岳 → 黄 | — |
+| **C5** | 删除前 `cancel_tasks()`，彻底删时 `purge_file()` 清页 PNG 与索引 | 岳 → 黄 | — |
 
 **铁律：改契约先改 `pdf_system/docs/contracts/C*.md` 并单独提 PR，另外两人确认后再动代码。**
-顺序反了的典型代价：黄改了 `bridge.py` 签名，岳那边直接 500，两人各查半天。
+（`pdf_system/docs/contracts/` 下 C1–C5 五份契约齐全，是正确的路径；旧文档中的 `docs/contracts/` 为陈旧路径。）
 
 ---
 
@@ -273,29 +252,28 @@ worker 与主系统**只通过数据库通信**，没有任何 RPC。
       → 黄 ensure_ocr_file() 写 ocr_files 镜像（C2）
                                                     ★共享存储目录
 ② 用户 POST /ocr/jobs
-      → 黄 quota.reserve(页数) 扣额度（C3）
+      → 按页记账 reserve（C3，内部）
       → 写 ocr_jobs(status=queued) + 每页 ocr_pages(status=pending)
 
 ③ OCR worker（独立进程，轮询）
-      → locked_job() 抢租约（lease_token / lease_until）
+      → locked_job() 领取任务
       → PaddleBackend 识别每页
       → 写 ocr_pages.result
       → 同事务写 pdf_text_index.content     ★检索的数据来源
       → job → succeeded / partial_success / failed
 
 ④ 用户 GET /ocr/jobs/{job_id}         查进度
-   PATCH /ocr/jobs/{id}/pages/{n}     校对（expected_revision 冲突→409）
+   GET  /ocr/jobs/{id}/pages          查看页结果
    GET  /ocr/jobs/{id}/export         导出
 
 ⑤ 陈  GET /search?q=...
       → 直接 SQL：pdf_text_index JOIN files
       → 过滤 deleted_at IS NULL、按 owner 鉴权
-      → 返回 snippet / page_no / job_id / revision
+      → 返回 snippet / page_no / job_id / generation
 ```
 
-> ⚠️ 已知阻塞缺陷：`ocr_service/queue.py` 的 `locked_job` 与 `api.py:223` 的 `correct`
-> 依赖「把字段更新成原值」的 `rowcount`，而 **MySQL 只统计真正变化的行**。
-> 后果：worker 无法提交结果、校对恒 409。归黄，**优先级 P0**，不修则整条链路在 MySQL 下跑不通。
+> ⚠️ 当前关键风险：`ocr_service/queue.py` 的 `locked_job` 依赖「把字段更新成原值」的 `rowcount`，而 **MySQL 只统计真正变化的行**；本版以 SQLite 演示，该缺陷不影响，但切 MySQL 会把链路跑不通。
+> 更大的前置风险是**真实 Paddle 权重推理尚未跑通**，`/health` 的 `ocr_mounted:true` 只表示模块导入成功，不等于 paddle 可用；必须先按第 10 节跑通一次真实识别。
 
 ---
 
@@ -309,17 +287,17 @@ worker 与主系统**只通过数据库通信**，没有任何 RPC。
 | `require_editor` | `user` / `admin` | 写操作（`viewer` 被拒） |
 | `require_admin` | `admin` | 管理操作 |
 
-角色枚举：`user` / `viewer` / `admin`（`principal.py:16` `ROLES`）。
+角色枚举：`user` / `viewer` / `admin`（`principal.py` 的 `ROLES`）。
 
 `Principal` 对象只暴露三个成员：`user_id: str`、`role: str`、`is_admin: bool`。
-需要新属性（如 `is_editor`）必须提 PR 给陈，**禁止绕过它自己查 `User` 表**。
+需要新属性必须提 PR 给陈，**禁止绕过它自己查 `User` 表**。
 
 **越权统一返回 404，不返回 403** —— 避免通过状态码差探测他人资源是否存在（需求 2.2）。
 `owned_file(session, file_id, user)` 已封装这一逻辑，越权和文件已删都走它。
 
 ---
 
-## 9. 部署视图
+## 9. 本地运行视图
 
 | 项 | 主系统 | OCR worker |
 |---|---|---|
@@ -339,14 +317,14 @@ worker 与主系统**只通过数据库通信**，没有任何 RPC。
 
 任一"同"没对上：密钥不同 → OCR 接口全 401；存储不同 → worker 读不到文件；数据库不同 → 任务永远 `queued`。
 
-模型权重（`models/*.pdparams`，共约 218 MB）**不在仓库内**，需 `python -m ocr_service download-models` 按 `manifest.json` 下载并校验 SHA256。
+模型权重（`models/*.pdparams`，共约 218 MB）**不在仓库内**，需 `python -m ocr_service download-models` 按 `manifest.json` 下载并校验 SHA256；当前权重推理链路待跑通。
 
 ---
 
 ## 10. 最小可运行 Demo
 
 完整环境配置（版本矩阵、安装步骤、已踩的坑）见 **[`team/getting-started.md`](team/getting-started.md)**。
-本节给能立刻验证"全链路通了"的最短路径，所有输出均为本机实测。
+本节给能立刻验证"全链路通了"的最短路径。
 
 ### 10.1 起服务
 
@@ -381,7 +359,7 @@ JOB=$(curl -s -X POST http://127.0.0.1:8000/api/v1/ocr/jobs \
 JID=$(echo "$JOB" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
 ```
 
-此时查配额会看到 `pages_reserved` 从 0 变 3 —— 契约 C3 生效。
+建任务时按页记账（C3，内部），不向用户展示配额看板。
 
 ### 10.3 起 worker（另开终端）
 
@@ -404,7 +382,7 @@ curl -s "http://127.0.0.1:8000/api/v1/ocr/jobs/$JID/pages/1" -H "Authorization: 
 
 curl -s "http://127.0.0.1:8000/api/v1/search?q=PDF" -H "Authorization: Bearer $TOKEN"
 # {"backend":"substring","items":[{"file_name":"demo.pdf","page_no":3,
-#   "job_id":"5c9650d1...","revision":1,"snippet":"PDF SYSTEM UPLOAD TEST\nPage 3 of3..."}]}
+#   "job_id":"5c9650d1...","generation":1,"snippet":"PDF SYSTEM UPLOAD TEST\nPage 3 of3..."}]}
 ```
 
 ### 10.5 这条链路覆盖了哪些契约
@@ -412,16 +390,10 @@ curl -s "http://127.0.0.1:8000/api/v1/search?q=PDF" -H "Authorization: Bearer $T
 | 步骤 | 验证的契约 |
 |---|---|
 | 上传后自动写 `ocr_files` 镜像 | C2 |
-| 建任务时预留 3 页配额 | C3 |
+| 建任务时按页记账 | C3 |
 | 回写的 `bbox` 是归一化坐标 | C4 |
-| 检索命中且带 `job_id` / `revision` | 回写与索引同事务 |
+| 检索命中且带 `job_id` / `generation` | 回写与索引同事务 |
 
 > `ocr_mounted: true` 只表示模块导入成功，**不代表 paddle 可用**。
 > 真正跑识别必须有 worker 进程（10.3）；没起 worker 时任务会一直 `queued`。
-
-
-## 2026-11-11 审查修复增量（本地待评审）
-
-新增7个路由：files/query、files/trash、files/bulk、files/merge、files/{file_id}/split、auth/users、audit。详见 api-contract.yaml 增量和 reviews/02-api-additions.md；原上文W7待补条目应以本节状态为准。旧数组files接口保留，管理前端改用query获取total与稳定排序。用户/审计接口后端require_admin，分享有效期服务端计时。未合并到GitHub main，评审与部署另行进行。
-
-2026-11-13：trash/users/audit支持envelope=true分页对象；bulk返回200/207/409并带逐项结果；详细说明见reviews/02-retest-contract.md。613be22已推送，旧“未合并”与“未推送”应区分。
+> 真实权重推理未跑通时，按 `features.md:1.2` 缩小演示口径并提前与指导教师确认。
