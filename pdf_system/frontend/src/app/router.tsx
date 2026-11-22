@@ -10,7 +10,6 @@ const UploadPage = lazy(() => import("../features/files/UploadPage"));
 const TrashPage = lazy(() => import("../features/files/TrashPage"));
 const ReaderPage = lazy(() => import("../features/reader/ReaderPage"));
 const SearchPage = lazy(() => import("../features/search/SearchPage"));
-const StatsPage = lazy(() => import("../features/stats/StatsPage"));
 const AccountPage = lazy(() => import("../features/auth/AccountPage"));
 const SharesPage = lazy(() => import("../features/share/SharesPage"));
 const PublicSharePage = lazy(() => import("../features/share/PublicSharePage"));
@@ -76,7 +75,6 @@ export default function AppRoutes() {
             }
           />
           <Route path="/search" element={<SearchPage />} />
-          <Route path="/stats" element={<StatsPage />} />
           <Route path="/shares" element={<SharesPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route

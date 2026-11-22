@@ -381,6 +381,7 @@ export async function mockApi(
       shares.splice(i, 1);
       return empty();
     }
+    if (/^\/files\/[^/]+\/reader\/(bookmarks|annotations)$/.test(path) && method === "GET") return json([]);
     if (path === "/search/suggest")
       return json({
         items: files

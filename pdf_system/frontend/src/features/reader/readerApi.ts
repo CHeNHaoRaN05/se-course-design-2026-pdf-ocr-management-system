@@ -19,14 +19,15 @@ export interface Annotation {
 
 const base = (fileId: string) => `/files/${fileId}/reader`;
 
-export const listBookmarks = (fileId: string) => api<Bookmark[]>(`${base(fileId)}/bookmarks`);
+export const listBookmarks = (fileId: string, signal?: AbortSignal) =>
+  api<Bookmark[]>(`${base(fileId)}/bookmarks`, { signal });
 export const addBookmark = (fileId: string, page_no: number, title = "") =>
   api<Bookmark>(`${base(fileId)}/bookmarks`, { method: "POST", body: JSON.stringify({ page_no, title }) });
 export const removeBookmark = (fileId: string, id: string) =>
   api<void>(`${base(fileId)}/bookmarks/${id}`, { method: "DELETE" });
 
-export const listAnnotations = (fileId: string, pageNo?: number) =>
-  api<Annotation[]>(`${base(fileId)}/annotations${pageNo ? `?page_no=${pageNo}` : ""}`);
+export const listAnnotations = (fileId: string, pageNo?: number, signal?: AbortSignal) =>
+  api<Annotation[]>(`${base(fileId)}/annotations${pageNo ? `?page_no=${pageNo}` : ""}`, { signal });
 export const addAnnotation = (fileId: string, body: { page_no: number; kind?: string; text?: string; bbox?: number[] }) =>
   api<Annotation>(`${base(fileId)}/annotations`, { method: "POST", body: JSON.stringify(body) });
 export const removeAnnotation = (fileId: string, id: string) =>

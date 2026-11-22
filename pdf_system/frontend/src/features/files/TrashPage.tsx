@@ -39,7 +39,6 @@ export default function TrashPage() {
     if (resource.data && page > 1 && (page - 1) * 12 >= resource.data.total)
       setPage(Math.max(1, Math.ceil(resource.data.total / 12)));
   }, [resource.data, page]);
-  const [selected, setSelected] = useState<string[]>([]);
   const [restoreId, setRestoreId] = useState("");
   const [operation, setOperation] = useState<{
     purge: boolean;
@@ -53,7 +52,6 @@ export default function TrashPage() {
   const [done, setDone] = useState(false);
   const filtered = resource.data?.items ?? [];
   const current = page;
-  useEffect(() => setSelected([]), [page, q]);
   function begin(purge: boolean, items: { id: string; name: string }[]) {
     setOperation({ purge, items });
     setConfirmed(false);
@@ -78,7 +76,6 @@ export default function TrashPage() {
     }
     setBusy(false);
     setDone(true);
-    setSelected([]);
     resource.reload();
   }
   return (
@@ -114,35 +111,6 @@ export default function TrashPage() {
             />
           </label>
         </div>
-        {selected.length > 0 && editor && (
-          <div className="bulk-toolbar">
-            <strong>已选 {selected.length} 项</strong>
-            <button
-              onClick={() =>
-                begin(
-                  false,
-                  filtered.filter((f) => selected.includes(f.id)),
-                )
-              }
-            >
-              批量还原
-            </button>
-            <button
-              className="danger"
-              onClick={() =>
-                begin(
-                  true,
-                  filtered.filter((f) => selected.includes(f.id)),
-                )
-              }
-            >
-              彻底删除
-            </button>
-            <button className="text-button" onClick={() => setSelected([])}>
-              取消选择
-            </button>
-          </div>
-        )}
         {resource.loading ? (
           <Loading />
         ) : resource.error ? (
@@ -167,7 +135,6 @@ export default function TrashPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>选择</th>
                     <th>文档名称</th>
                     <th>大小</th>
                     <th>删除时间</th>
@@ -177,20 +144,6 @@ export default function TrashPage() {
                 <tbody>
                   {filtered.map((file) => (
                     <tr key={file.id}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          aria-label={`选择 ${file.name}`}
-                          checked={selected.includes(file.id)}
-                          onChange={(e) =>
-                            setSelected((old) =>
-                              e.target.checked
-                                ? [...old, file.id]
-                                : old.filter((id) => id !== file.id),
-                            )
-                          }
-                        />
-                      </td>
                       <td>
                         <div className="file-name-cell">
                           <FileGlyph type={file.media_type} />

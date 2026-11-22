@@ -92,40 +92,21 @@ test("real concurrent uploads allocate unique names across requests", async ({
   await expect(page.locator("tbody tr")).toHaveCount(4);
 });
 
-test("browser merge and split operate on real PDFs and persist lineage", async ({
-  page,
-  request,
-}) => {
+test("real reader renders PDF and supports bookmarks and page notes", async ({ page, request }) => {
   const { headers } = await setup(page, request);
-  const a = await upload(request, headers, "first.pdf");
-  const b = await upload(request, headers, "second.pdf");
-  await page.goto("/files");
-  await page.getByLabel("选择 first.pdf", { exact: true }).check();
-  await page.getByLabel("选择 second.pdf", { exact: true }).check();
-  await page.getByRole("button", { name: "合并", exact: true }).click();
-  await page.getByLabel("输出文件名").fill("merged.pdf");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("成功 1 项");
-  await page.getByRole("button", { name: "完成", exact: true }).click();
-  const list = await (
-    await request.get("/api/v1/files/query?q=merged.pdf", { headers })
-  ).json();
-  const merged = list.items[0];
-  expect(merged.page_count).toBe(4);
-  expect(merged.version).toBe(2);
-  expect(merged.replaced_from).toBe(a.id);
-  const content = await request.get(`/api/v1/files/${merged.id}/content`, {
-    headers,
-  });
-  expect((await PDFDocument.load(await content.body())).getPageCount()).toBe(4);
-  await page.getByLabel("选择 merged.pdf", { exact: true }).check();
-  await page.getByRole("button", { name: "拆分", exact: true }).click();
-  await page.getByLabel(/页段（共/).fill("1-2,3-4");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("成功 2 项");
-  expect(
-    (await request.get(`/api/v1/files/${b.id}`, { headers })).status(),
-  ).toBe(200);
+  const file = await upload(request, headers, "reader.pdf");
+  await page.goto(`/files/${file.id}`);
+  await expect(page.locator("canvas")).toBeVisible();
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await page.getByRole("button", { name: "添加本页书签" }).click();
+  await expect(page.getByRole("button", { name: "第 2 页", exact: true })).toBeVisible();
+  await page.getByLabel("批注内容").fill("本机验收批注");
+  await page.getByRole("button", { name: "添加批注", exact: true }).click();
+  await expect(page.getByText("本机验收批注", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "删除批注", exact: true }).click();
+  await expect(page.getByText("本页暂无批注。")).toBeVisible();
+  await page.getByRole("button", { name: "删除书签", exact: true }).click();
+  await expect(page.getByText("暂无书签。")).toBeVisible();
 });
 
 test("real bulk returns per-item deleted-file failures and total failure 409", async ({

@@ -29,7 +29,6 @@ const groups = [
   {
     label: "工作空间",
     items: [
-      ["/stats", "chart", "配额与统计"],
       ["/account", "settings", "账户设置"],
     ],
   },

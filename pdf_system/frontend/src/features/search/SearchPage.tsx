@@ -1,15 +1,8 @@
-/** 第 03 线：全文检索、过滤、账号隔离的本机历史。 */
+/** 全文检索与文件名建议。 */
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
 import { api } from "../../shared/http";
-import {
-  emptyFilters,
-  historyKey,
-  readHistory,
-  rememberSearch,
-  type SearchFilters,
-} from "./searchHistory";
 import {
   EmptyState,
   Icon,
@@ -49,10 +42,9 @@ export default function SearchPage() {
   const { me } = useAuth();
   const [params] = useSearchParams();
   const initialQuery = params.get("q") ?? "";
-  const [filters, setFilters] = useState<SearchFilters>({ ...emptyFilters });
-  const [submitted, setSubmitted] = useState<SearchFilters | null>(null);
+  const [query, setQuery] = useState("");
+  const [submitted, setSubmitted] = useState<string | null>(null);
   const [items, setItems] = useState<Hit[]>([]);
-  const [history, setHistory] = useState<SearchFilters[]>([]);
   const [suggestions, setSuggestions] = useState<FileOption[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -64,10 +56,9 @@ export default function SearchPage() {
 
   useEffect(() => {
     request.current++;
-    setHistory(userId ? readHistory(userId) : []);
     setItems([]);
     setSubmitted(null);
-    setFilters({ ...emptyFilters });
+    setQuery("");
     setLoading(false);
     setError("");
     setNotice("");
@@ -77,15 +68,15 @@ export default function SearchPage() {
   }, [userId]);
   useEffect(() => {
     if (userId && initialQuery.trim())
-      void search({ ...emptyFilters, q: initialQuery.slice(0, 100) });
+      void search(initialQuery.slice(0, 100));
   }, [initialQuery, userId]);
   useEffect(() => {
     setSuggestions([]);
-    if (!filters.file_name.trim() || filters.file_id) return;
+    if (!query.trim() || !userId || query.trim() === submitted) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void api<{ items: FileOption[] }>(
-        `/search/suggest?q=${encodeURIComponent(filters.file_name.trim())}`,
+        `/search/suggest?q=${encodeURIComponent(query.trim())}`,
         { signal: controller.signal },
       )
         .then((data) => {
@@ -97,47 +88,20 @@ export default function SearchPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [filters.file_name, filters.file_id, userId]);
-  function change(key: keyof SearchFilters, value: string) {
-    setFilters((previous) => ({ ...previous, [key]: value }));
-  }
-  async function search(value: SearchFilters, start = 0) {
-    const normalized = { ...value, q: value.q.trim(), tag: value.tag.trim() };
-    if (!normalized.q) {
-      setError("请输入检索关键词");
-      return;
-    }
-    if (normalized.file_name && !normalized.file_id) {
-      setError("请从文件名建议中选择文件，或清空文件过滤");
-      return;
-    }
-    if (
-      normalized.date_from &&
-      normalized.date_to &&
-      normalized.date_from > normalized.date_to
-    ) {
-      setError("开始日期不能晚于结束日期");
-      return;
-    }
+  }, [query, submitted, userId]);
+  async function search(value: string, start = 0) {
+    const normalized = value.trim();
+    if (!normalized) return;
     const current = ++request.current;
     setLoading(true);
     setError("");
     setNotice("");
-    setFilters(normalized);
+    setQuery(normalized);
     const params = new URLSearchParams({
-      q: normalized.q,
+      q: normalized,
       limit: String(PAGE_SIZE + 1),
       offset: String(start),
     });
-    for (const key of [
-      "file_id",
-      "tag",
-      "date_from",
-      "date_to",
-      "media_type",
-    ] as const) {
-      if (normalized[key]) params.set(key, normalized[key]);
-    }
     try {
       const result = await api<{ backend: string; items: Hit[] }>(
         `/search?${params}`,
@@ -149,11 +113,8 @@ export default function SearchPage() {
       setOffset(start);
       if (result.backend === "ocr_not_ready")
         setNotice("OCR 服务尚未就绪，请启动服务后重试。");
-      else {
-        if (result.backend === "substring")
-          setNotice("本次使用子串匹配（单字查询或当前数据库未启用全文索引）。");
-        if (userId) setHistory(rememberSearch(userId, normalized));
-      }
+      else if (result.backend === "substring")
+        setNotice("本次使用子串匹配（单字查询或当前数据库未启用全文索引）。");
     } catch (e) {
       if (current === request.current) {
         setError(e instanceof Error ? e.message : "检索失败");
@@ -178,7 +139,7 @@ export default function SearchPage() {
         className="card search-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void search(filters);
+          void search(query);
         }}
       >
         <div className="row">
@@ -189,8 +150,8 @@ export default function SearchPage() {
               maxLength={100}
               required
               placeholder="例如：显微镜"
-              value={filters.q}
-              onChange={(e) => change("q", e.target.value)}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
             />
           </label>
           <button className="primary" disabled={loading || !userId}>
@@ -198,134 +159,23 @@ export default function SearchPage() {
             {loading ? "检索中…" : "检索"}
           </button>
         </div>
-        <div className="row" style={{ flexWrap: "wrap", marginTop: 12 }}>
-          <label>
-            文件名
-            <input
-              maxLength={100}
-              placeholder="输入名称后选择文件"
-              value={filters.file_name}
-              onChange={(e) =>
-                setFilters((previous) => ({
-                  ...previous,
-                  file_name: e.target.value,
-                  file_id: "",
-                }))
-              }
-            />
-          </label>
-          <label>
-            文件类型
-            <select
-              aria-label="检索文件类型"
-              value={filters.media_type}
-              onChange={(e) => change("media_type", e.target.value)}
-            >
-              <option value="">全部类型</option>
-              <option value="application/pdf">PDF</option>
-              <option value="image/png">PNG</option>
-              <option value="image/jpeg">JPEG</option>
-            </select>
-          </label>
-          <label>
-            标签
-            <input
-              maxLength={64}
-              placeholder="精确标签名"
-              value={filters.tag}
-              onChange={(e) => change("tag", e.target.value)}
-            />
-          </label>
-          <label>
-            上传日期（UTC）从
-            <input
-              type="date"
-              value={filters.date_from}
-              onChange={(e) => change("date_from", e.target.value)}
-            />
-          </label>
-          <label>
-            至
-            <input
-              type="date"
-              value={filters.date_to}
-              onChange={(e) => change("date_to", e.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => setFilters({ ...emptyFilters, q: filters.q })}
-          >
-            清除过滤
-          </button>
-        </div>
         {suggestions.length > 0 && (
           <ul aria-label="文件建议">
             {suggestions.map((file) => (
               <li key={file.file_id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilters((previous) => ({ ...previous, ...file }));
-                    setSuggestions([]);
-                  }}
-                >
-                  {file.file_name}
-                </button>
+                <Link to={`/files/${file.file_id}`}>{file.file_name}</Link>
               </li>
             ))}
           </ul>
         )}
       </form>
-      <div className="card">
-        <div className="row">
-          <strong>最近检索</strong>
-          <span className="muted">仅保存在此浏览器，按账号隔离</span>
-          <button
-            disabled={!history.length}
-            onClick={() => {
-              if (userId) {
-                try {
-                  localStorage.removeItem(historyKey(userId));
-                } catch {
-                  /* Disabled storage. */
-                }
-              }
-              setHistory([]);
-            }}
-          >
-            清空历史
-          </button>
-        </div>
-        <div className="row" style={{ flexWrap: "wrap", marginTop: 8 }}>
-          {history.map((entry, index) => (
-            <button
-              key={index}
-              disabled={loading}
-              title={[
-                entry.file_name,
-                entry.tag,
-                entry.date_from,
-                entry.date_to,
-              ]
-                .filter(Boolean)
-                .join(" / ")}
-              onClick={() => void search(entry)}
-            >
-              {entry.q}
-              {entry.tag ? ` · ${entry.tag}` : ""}
-            </button>
-          ))}
-        </div>
-        {!history.length && <p className="muted">暂无检索历史。</p>}
-      </div>
       {error && <Notice tone="error">{error}</Notice>}
       {notice && <Notice>{notice}</Notice>}
       <div className="card" aria-busy={loading}>
         {loading && <Loading text="正在检索文档内容…" />}
         {submitted && (
           <p className="search-results-heading">
-            “{submitted.q}” · 本页 {groups.size} 份文档，{items.length}{" "}
+            “{submitted}” · 本页 {groups.size} 份文档，{items.length}{" "}
             个页面命中
           </p>
         )}
@@ -350,7 +200,7 @@ export default function SearchPage() {
                   · 来源任务 {hit.job_id.slice(0, 8)}
                 </span>
                 <p>
-                  <Highlight text={hit.snippet} keyword={submitted?.q ?? ""} />
+                  <Highlight text={hit.snippet} keyword={submitted ?? ""} />
                 </p>
               </div>
             ))}
@@ -362,7 +212,7 @@ export default function SearchPage() {
             title={submitted ? "没有找到匹配内容" : "从一个关键词开始"}
             description={
               submitted
-                ? "试试更换关键词或放宽筛选条件。"
+                ? "试试更换关键词。"
                 : "搜索已识别文档中的文字，点击结果即可跳到对应页。"
             }
           />

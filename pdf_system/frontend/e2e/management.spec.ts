@@ -7,7 +7,7 @@ test("login and registration validate input and preserve the requested destinati
   page,
 }, testInfo) => {
   const state = await mockApi(page, { loggedIn: false });
-  await page.goto("/stats");
+  await page.goto("/account");
   await expect(page).toHaveURL(/login/);
   await page.screenshot({
     path: testInfo.outputPath("login-desktop.png"),
@@ -17,11 +17,10 @@ test("login and registration validate input and preserve the requested destinati
   await page.getByLabel("邮箱地址").fill("student@example.com");
   await page.getByLabel("密码", { exact: true }).fill("Password123");
   await page.getByRole("button", { name: "登录工作空间" }).click();
-  await expect(page).toHaveURL(/stats/);
-  await expect(page.getByRole("heading", { name: "配额与统计" })).toBeVisible();
-  await expect(page.locator(".quota-summary")).toContainText("180");
+  await expect(page).toHaveURL(/account/);
+  await expect(page.getByRole("heading", { name: "账户设置" })).toBeVisible();
   await page.screenshot({
-    path: testInfo.outputPath("stats-desktop.png"),
+    path: testInfo.outputPath("account-desktop.png"),
     fullPage: true,
     animations: "disabled",
   });
@@ -38,12 +37,14 @@ test("login and registration validate input and preserve the requested destinati
   await expect(page.getByRole("alert")).toContainText("不一致");
 });
 
-test("library supports full-list pagination, search, selection and grid view", async ({
+test("library supports full-list pagination, search and grid view", async ({
   page,
 }, testInfo) => {
   await mockApi(page);
   await page.goto("/files");
   await expect(page.locator("tbody tr")).toHaveCount(12);
+  await expect(page.getByRole("link", { name: "配额与统计" })).toHaveCount(0);
+  await expect(page.getByLabel("选择本页全部文档")).toHaveCount(0);
   await page.getByRole("button", { name: "下一页", exact: true }).click();
   await expect(page.locator("tbody tr")).toHaveCount(3);
   await page.getByLabel("按文件名搜索").fill("验收");
@@ -77,12 +78,14 @@ test("rename and delete are confirmed; trash history restores using real endpoin
   await page.getByRole("button", { name: "确认", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("成功 1 项");
   await page.getByRole("button", { name: "完成", exact: true }).click();
-  await page.getByLabel("选择 重命名后的资料.pdf", { exact: true }).check();
-  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByLabel("重命名后的资料.pdf 的更多操作").click();
+  await page.getByRole("button", { name: "移入回收站", exact: true }).click();
   expect(state.trash).toHaveLength(0);
   await page.getByRole("button", { name: "取消", exact: true }).click();
   expect(state.trash).toHaveLength(0);
-  await page.getByRole("button", { name: "删除", exact: true }).click();
+  const menu = page.locator("details").filter({ has: page.getByLabel("重命名后的资料.pdf 的更多操作") });
+  if ((await menu.getAttribute("open")) === null) await page.getByLabel("重命名后的资料.pdf 的更多操作").click();
+  await page.getByRole("button", { name: "移入回收站", exact: true }).click();
   await page.getByRole("button", { name: "确认", exact: true }).click();
   await page.getByRole("button", { name: "完成", exact: true }).click();
   await page.getByRole("link", { name: "回收站", exact: true }).click();
@@ -92,22 +95,6 @@ test("rename and delete are confirmed; trash history restores using real endpoin
   await page.getByRole("button", { name: "确认", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("成功 1 项");
   expect(state.trash).toHaveLength(0);
-});
-
-test("batch operation reports partial failures rather than claiming full success", async ({
-  page,
-}) => {
-  const state = await mockApi(page);
-  await page.goto("/files");
-  await page
-    .getByLabel("选择 软件工程课程设计需求分析.pdf", { exact: true })
-    .check();
-  await page.getByLabel("选择 项目验收报告.pdf", { exact: true }).check();
-  state.failNextUpdate();
-  await page.getByRole("button", { name: "移动", exact: true }).click();
-  await page.getByLabel("目标分类路径").fill("/验收资料");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("成功 1 项 · 失败 1 项");
 });
 
 test("multi-upload rejects invalid files and retries metadata without a duplicate upload", async ({
@@ -135,31 +122,6 @@ test("multi-upload rejects invalid files and retries metadata without a duplicat
   expect(
     state.requests.filter((r) => r.path === "/files" && r.method === "POST"),
   ).toHaveLength(1);
-});
-
-test("PDF merge and split create new files while preserving originals", async ({
-  page,
-}) => {
-  const state = await mockApi(page);
-  await page.goto("/files");
-  await page
-    .getByLabel("选择 软件工程课程设计需求分析.pdf", { exact: true })
-    .check();
-  await page.getByLabel("选择 项目验收报告.pdf", { exact: true }).check();
-  await page.getByRole("button", { name: "合并", exact: true }).click();
-  await page.getByLabel("输出文件名").fill("合并结果.pdf");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("成功 1 项");
-  await page.getByRole("button", { name: "完成", exact: true }).click();
-  expect(state.files).toHaveLength(16);
-  await page
-    .getByLabel("选择 软件工程课程设计需求分析.pdf", { exact: true })
-    .check();
-  await page.getByRole("button", { name: "拆分", exact: true }).click();
-  await page.getByLabel(/页段（共/).fill("1,2");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("成功 2 项");
-  expect(state.files).toHaveLength(18);
 });
 
 test("share creation, code validation, metadata-only access and revoke", async ({
@@ -219,7 +181,7 @@ test("viewer cannot upload, manage shares or visit admin pages", async ({
   ).toHaveLength(0);
 });
 
-test("global search highlights escaped content and keeps per-account history", async ({
+test("global search highlights escaped content without exposing search history", async ({
   page,
 }) => {
   await mockApi(page);
@@ -232,11 +194,7 @@ test("global search highlights escaped content and keeps per-account history", a
   await expect(page.locator(".search-result").first()).toContainText(
     "<script>alert(1)</script>",
   );
-  await expect(
-    page.getByRole("button", { name: "验收报告", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "清空历史" }).click();
-  await expect(page.getByText("暂无检索历史。")).toBeVisible();
+  await expect(page.getByText("最近检索", { exact: true })).toHaveCount(0);
 });
 
 test("admin can update known users; audit errors stay visible", async ({
@@ -443,7 +401,7 @@ test("permission errors never fall back to locally cached trash", async ({
   await expect(page.getByText(/当前显示本浏览器/)).toHaveCount(0);
 });
 
-test("invisible access code cannot create a share and search sends media_type", async ({
+test("invisible access code cannot create a share and search sends only the keyword and pagination", async ({
   page,
 }) => {
   const state = await mockApi(page);
@@ -453,15 +411,14 @@ test("invisible access code cannot create a share and search sends media_type", 
   await expect(page.getByRole("alert")).toContainText("字母和数字");
   expect(state.shares).toHaveLength(0);
   await page.goto("/search");
-  await page.getByLabel("检索文件类型").selectOption("application/pdf");
   await page.getByLabel("关键词", { exact: true }).fill("验收");
   const request = page.waitForRequest((r) =>
     r.url().includes("/api/v1/search?"),
   );
   await page.getByRole("button", { name: "检索", exact: true }).click();
-  expect(new URL((await request).url()).searchParams.get("media_type")).toBe(
-    "application/pdf",
-  );
+  const params = new URL((await request).url()).searchParams;
+  expect(params.get("q")).toBe("验收");
+  expect(params.has("media_type")).toBe(false);
 });
 
 test("OCR failures stop after three attempts and reader retains base control styles", async ({

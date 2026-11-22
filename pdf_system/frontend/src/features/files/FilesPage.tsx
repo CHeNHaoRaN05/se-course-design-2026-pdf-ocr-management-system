@@ -36,10 +36,9 @@ export default function FilesPage() {
   const [sort, setSort] = useState("newest");
   const [page, setPage] = useState(1);
   const [view, setView] = useState("list");
-  const [selected, setSelected] = useState<string[]>([]);
   const [action, setAction] = useState<{
     kind: FileAction;
-    files: FileItem[];
+    file: FileItem;
   } | null>(null);
   const [detail, setDetail] = useState<FileItem | null>(null);
   const [message, setMessage] = useState("");
@@ -69,26 +68,16 @@ export default function FilesPage() {
   useEffect(() => onFilesChanged(resource.reload), [resource.reload]);
   const metadata = useResource(
     async (signal) => {
-      const [folders, tags, overview] = await Promise.all([
+      const [folders, tags] = await Promise.all([
         api<string[]>("/files/folders", { signal }),
         api<string[]>("/files/tags", { signal }),
-        api<{ files: number; storage_bytes: number }>("/quota/overview", {
-          signal,
-        }),
       ]);
-      return { folders, tags, overview };
+      return { folders, tags };
     },
     [resource.data],
   );
   const files = resource.data?.items ?? [];
-  const folders = [
-    ...new Set(
-      (metadata.data?.folders ?? []).flatMap((path) => {
-        const parts = path.split("/").filter(Boolean);
-        return parts.map((_, i) => "/" + parts.slice(0, i + 1).join("/"));
-      }),
-    ),
-  ].sort();
+  const folders = metadata.data?.folders ?? [];
   const tags = metadata.data?.tags ?? [];
   const statusReady = resource.data?.status_available ?? false;
   const filtered = files;
@@ -111,16 +100,7 @@ export default function FilesPage() {
     )
       setPage(Math.max(1, Math.ceil(resource.data.total / PAGE_SIZE)));
   }, [resource.data, page]);
-  const picked = selected
-    .map((id) => files.find((file) => file.id === id))
-    .filter((file): file is (typeof files)[number] => !!file);
-  useEffect(() => {
-    setPage(1);
-    setSelected([]);
-  }, [q, folder, tag, type, status, sort, dateFrom, dateTo]);
-  useEffect(() => {
-    setSelected([]);
-  }, [page]);
+  useEffect(() => setPage(1), [q, folder, tag, type, status, sort, dateFrom, dateTo]);
   // 状态服务不可用时仍展示服务端返回的文档；解除旧条件使用户能重新选择。
   useEffect(() => {
     if (resource.data && !resource.data.status_available) {
@@ -128,17 +108,10 @@ export default function FilesPage() {
       if (sort === "status") setSort("newest");
     }
   }, [resource.data, status, sort]);
-  function toggle(id: string) {
-    setSelected((previous) =>
-      previous.includes(id)
-        ? previous.filter((item) => item !== id)
-        : [...previous, id],
-    );
-  }
-  function open(kind: FileAction, items: FileItem[] = picked) {
-    if (editor && items.length) {
+  function open(kind: FileAction, file: FileItem) {
+    if (editor) {
       setMessage("");
-      setAction({ kind, files: items });
+      setAction({ kind, file });
     }
   }
   async function download(file: FileItem) {
@@ -179,11 +152,11 @@ export default function FilesPage() {
           </button>
           {editor && (
             <>
-              <button onClick={() => open("rename", [file])}>重命名</button>
-              <button onClick={() => open("move", [file])}>移动分类</button>
-              <button onClick={() => open("tag", [file])}>编辑标签</button>
+              <button onClick={() => open("rename", file)}>重命名</button>
+              <button onClick={() => open("move", file)}>移动分类</button>
+              <button onClick={() => open("tag", file)}>编辑标签</button>
               <Link to={`/shares?file=${file.id}`}>创建分享</Link>
-              <button className="error" onClick={() => open("delete", [file])}>
+              <button className="error" onClick={() => open("delete", file)}>
                 移入回收站
               </button>
             </>
@@ -213,56 +186,6 @@ export default function FilesPage() {
           </>
         }
       />
-      <div className="library-stats">
-        <div>
-          <span className="stat-icon blue">
-            <Icon name="folder" />
-          </span>
-          <span>
-            <strong>{metadata.data?.overview.files ?? "—"}</strong>
-            <small>我的文档</small>
-          </span>
-        </div>
-        <div>
-          <span className="stat-icon rose">
-            <Icon name="file" />
-          </span>
-          <span>
-            <strong>
-              {resource.data
-                ? files.filter((f) => f.media_type === "application/pdf").length
-                : "—"}
-            </strong>
-            <small>本页 PDF 文档</small>
-          </span>
-        </div>
-        <div>
-          <span className="stat-icon green">
-            <Icon name="list" />
-          </span>
-          <span>
-            <strong>
-              {resource.data
-                ? files.reduce((sum, f) => sum + f.page_count, 0)
-                : "—"}
-            </strong>
-            <small>本页文档页数</small>
-          </span>
-        </div>
-        <div>
-          <span className="stat-icon amber">
-            <Icon name="chart" />
-          </span>
-          <span>
-            <strong>
-              {resource.data
-                ? formatBytes(metadata.data?.overview.storage_bytes ?? 0)
-                : "—"}
-            </strong>
-            <small>我的文档存储</small>
-          </span>
-        </div>
-      </div>
       {(resource.error || message) && (
         <Notice tone="error">
           {resource.error || message}
@@ -297,16 +220,15 @@ export default function FilesPage() {
                 key={path}
                 title={path}
                 className={folder === path ? "active" : ""}
-                style={{ paddingLeft: 12 + (path.split("/").length - 2) * 12 }}
                 onClick={() => setFolder(path)}
               >
                 <Icon name="folder" size={16} />
-                <span className="folder-name">{path.split("/").pop()}</span>
+                <span className="folder-name">{path}</span>
               </button>
             ))}
           </div>
           <div className="folder-note">
-            选择文档后点击“移动”，
+            从文档菜单选择“移动分类”，
             <br />
             即可设置或新建分类路径。
           </div>
@@ -431,53 +353,6 @@ export default function FilesPage() {
               </button>
             </div>
           )}
-          {!!picked.length && (
-            <div className="bulk-toolbar">
-              <strong>已选 {picked.length} 项</strong>
-              {editor && (
-                <>
-                  <button onClick={() => open("move")}>
-                    <Icon name="folder" size={15} />
-                    移动
-                  </button>
-                  <button onClick={() => open("tag")}>
-                    <Icon name="tag" size={15} />
-                    打标
-                  </button>
-                  <button
-                    disabled={
-                      picked.length < 2 ||
-                      picked.some((f) => f.media_type !== "application/pdf")
-                    }
-                    onClick={() => open("merge")}
-                  >
-                    <Icon name="merge" size={15} />
-                    合并
-                  </button>
-                  <button
-                    disabled={
-                      picked.length !== 1 ||
-                      picked[0]?.media_type !== "application/pdf"
-                    }
-                    onClick={() => open("split")}
-                  >
-                    <Icon name="split" size={15} />
-                    拆分
-                  </button>
-                  <button
-                    className="danger subtle"
-                    onClick={() => open("delete")}
-                  >
-                    <Icon name="trash" size={15} />
-                    删除
-                  </button>
-                </>
-              )}
-              <button className="text-button" onClick={() => setSelected([])}>
-                取消选择
-              </button>
-            </div>
-          )}
           {resource.loading ? (
             <Loading text="正在加载文档库…" />
           ) : resource.error ? (
@@ -526,30 +401,6 @@ export default function FilesPage() {
               <table className="file-table">
                 <thead>
                   <tr>
-                    <th>
-                      <input
-                        type="checkbox"
-                        aria-label="选择本页全部文档"
-                        checked={
-                          visible.length > 0 &&
-                          visible.every((file) => selected.includes(file.id))
-                        }
-                        onChange={(e) =>
-                          setSelected((old) =>
-                            e.target.checked
-                              ? [
-                                  ...new Set([
-                                    ...old,
-                                    ...visible.map((f) => f.id),
-                                  ]),
-                                ]
-                              : old.filter(
-                                  (id) => !visible.some((f) => f.id === id),
-                                ),
-                          )
-                        }
-                      />
-                    </th>
                     <th>文档名称</th>
                     <th>大小 / 页数</th>
                     <th>识别状态</th>
@@ -559,20 +410,7 @@ export default function FilesPage() {
                 </thead>
                 <tbody>
                   {visible.map((file) => (
-                    <tr
-                      key={file.id}
-                      className={
-                        selected.includes(file.id) ? "selected-row" : ""
-                      }
-                    >
-                      <td>
-                        <input
-                          aria-label={`选择 ${file.name}`}
-                          type="checkbox"
-                          checked={selected.includes(file.id)}
-                          onChange={() => toggle(file.id)}
-                        />
-                      </td>
+                    <tr key={file.id}>
                       <td>
                         <div className="file-name-cell">
                           <FileGlyph type={file.media_type} />
@@ -603,7 +441,6 @@ export default function FilesPage() {
                               {!file.tags.length && (
                                 <small>
                                   {file.folder === "/" ? "未分类" : file.folder}{" "}
-                                  · v{file.version}
                                 </small>
                               )}
                             </div>
@@ -633,18 +470,11 @@ export default function FilesPage() {
             <div className="file-grid">
               {visible.map((file) => (
                 <article
-                  className={`document-card ${selected.includes(file.id) ? "selected" : ""}`}
+                  className="document-card"
                   key={file.id}
                 >
                   <div className="row">
                     <FileGlyph type={file.media_type} />
-                    <span className="spacer" />
-                    <input
-                      type="checkbox"
-                      aria-label={`选择 ${file.name}`}
-                      checked={selected.includes(file.id)}
-                      onChange={() => toggle(file.id)}
-                    />
                   </div>
                   <button
                     className="filename-button"
@@ -682,12 +512,11 @@ export default function FilesPage() {
       {action && (
         <FileActionDialog
           action={action.kind}
-          files={action.files}
+          file={action.file}
           onClose={() => {
             setAction(null);
           }}
           onChanged={() => {
-            setSelected([]);
             resource.reload();
           }}
         />
@@ -711,9 +540,6 @@ export default function FilesPage() {
             <dd>
               {files.find((f) => f.id === detail.id)?.generation ?? "不可用"}
             </dd>
-            <dt>来源文档</dt><dd className="mono">{detail.replaced_from || "原始上传"}</dd>
-            <dt>版本</dt>
-            <dd>v{detail.version}</dd>
             <dt>上传时间</dt>
             <dd>{formatDate(detail.created_at, true)}</dd>
             <dt>所属分类</dt>

@@ -61,23 +61,6 @@ try {
   await expect(page.locator("tbody tr")).toHaveCount(2);
   completed.push("multi-upload/metadata/list");
 
-  await page.getByLabel("选择 联调样本一.pdf", { exact: true }).check();
-  await page.getByLabel("选择 联调样本二.pdf", { exact: true }).check();
-  await page.getByRole("button", { name: "合并", exact: true }).click();
-  await page.getByLabel("输出文件名").fill("真实合并.pdf");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("成功 1 项");
-  await page.getByRole("button", { name: "完成", exact: true }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(3);
-  await page.getByLabel("选择 真实合并.pdf", { exact: true }).check();
-  await page.getByRole("button", { name: "拆分", exact: true }).click();
-  await page.getByLabel(/页段（共/).fill("1-2,3-4");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("成功 2 项");
-  await page.getByRole("button", { name: "完成", exact: true }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(5);
-  completed.push("merge/split/real-PDF-validation");
-
   await page.goto(`${origin}/shares`);
   await page.getByLabel("选择文档").selectOption({ label: "联调样本一.pdf" });
   await page.getByLabel(/提取码/).fill("2468");
@@ -109,8 +92,8 @@ try {
   completed.push("share/guest-code/download/revoke");
 
   await page.goto(`${origin}/files`);
-  await page.getByLabel("选择 联调样本一.pdf", { exact: true }).check();
-  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByLabel("联调样本一.pdf 的更多操作").click();
+  await page.getByRole("button", { name: "移入回收站", exact: true }).click();
   await page.getByRole("button", { name: "确认", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("成功 1 项");
   await page.getByRole("button", { name: "完成", exact: true }).click();
@@ -121,11 +104,9 @@ try {
   await expect(page.getByRole("dialog")).toContainText("成功 1 项");
   await page.getByRole("button", { name: "完成", exact: true }).click();
   await page.goto(`${origin}/files`);
-  await expect(page.locator("tbody tr")).toHaveCount(5);
+  await expect(page.locator("tbody tr")).toHaveCount(2);
   completed.push("soft-delete/server-trash/restore");
 
-  await page.goto(`${origin}/stats`);
-  await expect(page.locator(".metric-card").first()).toContainText("5");
   await page.goto(`${origin}/account`);
   await page.getByLabel("当前密码").fill(password);
   await page.getByLabel("新密码", { exact: true }).fill(password + "2");
@@ -136,7 +117,7 @@ try {
   await expect(page.getByRole("status")).toContainText("当前登录会话已续期");
   await page.getByRole("button", { name: "退出登录" }).click();
   await expect(page).toHaveURL(/login/);
-  completed.push("quota/password/token-rotation/logout");
+  completed.push("password/token-rotation/logout");
   assert.deepEqual(errors, []);
   writeFileSync(
     "test-results/live-result.json",
