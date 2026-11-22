@@ -169,6 +169,10 @@ try {
       2,
     ),
   );
+  // CI 里控制台日志需要管理员权限才能读，Annotations 不需要。
+  // 用 ::error:: 工作流命令把「最后完成的环节 + 首行错误」带上，便于定位。
+  const reason = `live-smoke 失败：最后完成=${completed.at(-1) ?? "启动阶段"} | ${String(error).split("\n")[0]}`;
+  console.log(`::error::${reason.replace(/%/g, "%25").replace(/\r?\n/g, "%0A")}`);
   await page
     .screenshot({
       path: join("test-results", "live-failure.png"),
