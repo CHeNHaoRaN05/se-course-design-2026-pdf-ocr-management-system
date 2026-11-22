@@ -3,6 +3,19 @@
 
 交付范围按最小必须功能集裁剪，范围外项见 [`docs/features.md`](docs/features.md) 1.2。
 
+## 本机启动
+
+准备好 Paddle Python 环境、OCR 权重以及 Node.js，在 `pdf_system/frontend` 执行一次 `npm ci`。按[环境配置指南](docs/team/getting-started.md)配置 `pdf_system/.env`，单机演示可使用 SQLite。
+
+在仓库根目录进入主系统目录，用可导入 Paddle 的 Python 启动：
+
+```powershell
+cd pdf_system
+python -m backend.scripts.run_local
+```
+
+启动器初始化数据库表，使用同一份配置启动 API 和 OCR worker，然后启动前端。看到 `Local system ready` 后访问 [本机系统](http://127.0.0.1:5173)。按 Ctrl+C 停止三项服务。
+
 ## 文档
 
 完整文档见 [`docs/README.md`](docs/README.md)（文档中心）：
