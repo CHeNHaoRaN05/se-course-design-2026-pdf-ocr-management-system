@@ -17,6 +17,10 @@ const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
 });
 const page = await context.newPage();
+// 真实后端的首个写请求（注册 → 密码哈希 + 建库）在冷启动的 CI runner 上会明显慢于
+// 本地。实测：ci#57 该步骤 10s 通过，ci#56 / ci#40 在同一位置 6s 失败，而 Playwright
+// 的 expect 默认超时只有 5s。这里放宽到 15s 上限——仍然是有界断言，不做无限等待。
+page.setDefaultTimeout(15000);
 const origin = process.env.SE_FRONTEND_ORIGIN || "http://127.0.0.1:5173";
 const password = randomBytes(16).toString("hex") + "A1";
 const email = `frontend-smoke-${randomBytes(5).toString("hex")}@example.com`;
