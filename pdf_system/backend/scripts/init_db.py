@@ -2,9 +2,25 @@
 
     python -m backend.scripts.init_db
 """
+from sqlalchemy import inspect
+
 from backend.core.config import get_settings, validate
 from backend.core.database import build_engine
 from backend.models import Base
+
+
+def upgrade_sqlite_users(engine) -> None:
+    """Backfill the token generation used to invalidate sessions after password changes."""
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.begin() as connection:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        columns = {column["name"] for column in inspect(connection).get_columns("users")}
+        if "token_version" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
+            )
+            print("已升级 SQLite 用户表")
 
 
 def main() -> None:
@@ -12,7 +28,8 @@ def main() -> None:
     validate(settings)
     engine = build_engine(settings)
     Base.metadata.create_all(engine)
-    print("主系统表已建立（已存在的表不会被迁移）")
+    upgrade_sqlite_users(engine)
+    print("主系统表已建立并检查 SQLite 用户表版本")
 
     # OCR 模块使用自己的 DeclarativeBase，需要在同库单独建一次
     import os
