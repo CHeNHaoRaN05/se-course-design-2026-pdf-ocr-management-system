@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 *.egg
 .pytest_cache/
+# 本地测试临时目录（--basetemp=.pytest_tmp 时产生）
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 
