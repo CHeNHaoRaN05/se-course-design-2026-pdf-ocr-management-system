@@ -18,7 +18,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-ROOT = r"c:\Users\Administrator\Desktop\se_course_design"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(ROOT, "docs")
 DESIGN = os.path.join(DOCS, "design")
 MD = os.path.join(DESIGN, "系统设计文档.md")

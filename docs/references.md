@@ -6,8 +6,8 @@
 |---|---|
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 协作流程：分支、PR、评审规则 |
 | [`../LICENSE`](../LICENSE) | 开源许可证 |
-| [`requirements/需求分析文档_V1.1_审查修订版.docx`](requirements/需求分析文档_V1.1_审查修订版.docx) | 需求阶段 Word 正稿（FR-/NFR- 编号基线） |
-| [`design/系统设计文档.md`](design/系统设计文档.md) | 系统设计基线 |
+| [`requirements/需求分析文档_V1.1.docx`](requirements/需求分析文档_V1.1.docx) | 需求阶段 Word 正稿（FR-/NFR- 编号基线） |
+| [`design/系统设计文档_V2.0.md`](design/系统设计文档_V2.0.md) | 系统设计基线（V2.0，当前交付口径） |
 | [`../pdf_system/docs/ARCHITECTURE.md`](../pdf_system/docs/ARCHITECTURE.md) | 主系统详细设计 |
 | [`../pdf_system/docs/DATABASE.md`](../pdf_system/docs/DATABASE.md) | 数据库详细设计 |
 | [`../pdf_system/docs/contracts/`](../pdf_system/docs/contracts/) | 跨线契约 C1–C5 原文 |

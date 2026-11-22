@@ -21,12 +21,15 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`requirements/需求分析文档.md`](requirements/1/需求分析文档.md) | 需求分析文档 V1.1 源文件 |
+| [`requirements/需求分析文档.md`](requirements/需求分析文档.md) | 需求分析文档 V1.1 源文件（FR-/NFR- 编号基线） |
 | [`requirements/需求分析文档_V1.1.docx`](requirements/需求分析文档_V1.1.docx) | 需求分析文档 Word 正稿 |
-| [`design/系统设计文档.md`](design/系统设计文档.md) | 系统设计文档源文件（架构、模块、数据、接口、运行维护） |
-| [`design/系统设计文档_V1.0.docx`](design/系统设计文档_V1.0.docx) | 系统设计文档 Word 正稿 |
+| [`requirements/需求分析文档_一致性审查报告.md`](requirements/需求分析文档_一致性审查报告.md) | 需求与设计的一致性审查结论 |
+| [`design/系统设计文档_V2.0.md`](design/系统设计文档_V2.0.md) | 系统设计文档 V2.0 源文件（当前基线） |
+| [`design/系统设计文档_V2.0.docx`](design/系统设计文档_V2.0.docx) | 系统设计文档 V2.0 Word 正稿 |
 | [`design/界面原型设计.md`](design/界面原型设计.md) | 15 个界面、20 张原型截图与需求追溯 |
 | [`prototype/index.html`](prototype/index.html) | 可离线打开的 HTML 原型 |
+
+> V1.0 需求稿、V1.1 初稿、设计文档的审查过程稿均已移入 [`archive/`](archive/)，仅作追溯，不作为交付基线。
 
 ## V2.0 裁剪后基线（当前实施口径）
 

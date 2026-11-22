@@ -11,12 +11,12 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 
-DOCS = r"c:\Users\Administrator\Desktop\se_course_design\docs"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DOCS = os.path.join(ROOT, "docs")
 REQ = os.path.join(DOCS, "requirements")
-ROOT = os.path.dirname(DOCS)
 MD = os.path.join(REQ, "需求分析文档.md")
 OUT = os.path.join(REQ, "需求分析文档_V1.1.docx")
-FALLBACK = os.path.join(REQ, "需求分析文档_V1.1_审查修订版.docx")
+FALLBACK = os.path.join(REQ, "需求分析文档_V1.1_导出版.docx")
 TMP = os.path.join(os.path.dirname(__file__), ".req_docx_tmp.docx")
 
 # ---------- 第 1 步：pandoc 转换到临时文件 ----------

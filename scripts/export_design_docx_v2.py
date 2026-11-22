@@ -18,12 +18,12 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-ROOT = r"c:\Users\Administrator\Desktop\se_course_design"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(ROOT, "docs")
 DESIGN = os.path.join(DOCS, "design")
 MD = os.path.join(DESIGN, "系统设计文档_V2.0.md")
-OUT = os.path.join(DESIGN, "系统设计文档_V2.0_范围外清理版.docx")
-FALLBACK = os.path.join(DESIGN, "系统设计文档_V2.0_范围外清理版_导出版.docx")
+OUT = os.path.join(DESIGN, "系统设计文档_V2.0.docx")
+FALLBACK = os.path.join(DESIGN, "系统设计文档_V2.0_导出版.docx")
 TMP = os.path.join(os.path.dirname(__file__), ".design_v2_tmp.docx")
 
 # ---------- 第 1 步：pandoc 转换到临时文件 ----------
