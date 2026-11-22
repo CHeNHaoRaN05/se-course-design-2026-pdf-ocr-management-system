@@ -9,6 +9,7 @@
 |---|---|
 | [`requirements/`](requirements/) | 需求阶段交付物：需求分析文档（Markdown / Word）与一致性审查报告 |
 | [`design/`](design/) | 设计阶段交付物：系统设计文档（Markdown / Word）、界面原型设计 |
+| [`design/V2.0/`](design/V2.0/README.md) | **V2.0 裁剪后基线**（当前实施口径）：01 需求分析 ~ 09 裁剪说明共 9 篇 + 索引 |
 | [`qa/`](qa/) | 测试审查、复测与远端推送检查报告 |
 | [`archive/`](archive/) | 历史版本、订正前备份与过程素材（只读留档，不作为当前基线） |
 | [`media/`](media/) | UML、E-R、状态图等建模成图（20 张 PNG） |
@@ -26,6 +27,22 @@
 | [`design/系统设计文档_V1.0.docx`](design/系统设计文档_V1.0.docx) | 系统设计文档 Word 正稿 |
 | [`design/界面原型设计.md`](design/界面原型设计.md) | 15 个界面、20 张原型截图与需求追溯 |
 | [`prototype/index.html`](prototype/index.html) | 可离线打开的 HTML 原型 |
+
+## V2.0 裁剪后基线（当前实施口径）
+
+按“最小必须功能集”裁剪后的基线文档，实施、验收与答辩均以此为准：
+
+| 文档 | 内容 |
+|---|---|
+| [`design/V2.0/README.md`](design/V2.0/README.md) | 基线索引与阅读顺序 |
+| [`design/V2.0/01_需求分析.md`](design/V2.0/01_需求分析.md) | 保留功能集与验收口径 |
+| [`design/V2.0/02_架构与接口.md`](design/V2.0/02_架构与接口.md) | 进程视图、模块边界、接口总表 |
+| [`design/V2.0/03_开发基线与验收.md`](design/V2.0/03_开发基线与验收.md) | 环境矩阵、验收标准 |
+| [`design/V2.0/04_API契约.yaml`](design/V2.0/04_API契约.yaml) | 设计期接口快照 |
+| [`design/V2.0/09_裁剪说明.md`](design/V2.0/09_裁剪说明.md) | 裁掉了什么、为什么、影响面 |
+
+> 契约口径：`api-contract.yaml` 由实际路由生成（`python -m backend.scripts.export_contract`），
+> 是唯一权威；`design/V2.0/04_API契约.yaml` 为设计期快照，供评审对照，不作为实现依据。
 
 ## 技术参考
 
@@ -49,6 +66,8 @@
 | [`team/frontend.md`](team/frontend.md) | 前端目录、HTTP 约定、坐标口径 |
 | [`team/database.md`](team/database.md) | 表所有权、schema 冻结规则 |
 | [`qa/`](qa/) | 02/03 线测试审查报告、复测报告、远端推送检查 |
+| [`测试审查报告/`](测试审查报告/) | 功能分层与裁剪建议、最小必须功能集实现状态、PR #9 合并记录、文档入库记录 |
+| [`项目整体交接文档_20261120.md`](项目整体交接文档_20261120.md) | 全项目交接：现状、风险清单、下一步优先级 |
 | [`archive/`](archive/) | 历史 Word 版本、订正前备份、需求阶段迁出的设计素材 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 分支、PR 与评审流程 |
 
