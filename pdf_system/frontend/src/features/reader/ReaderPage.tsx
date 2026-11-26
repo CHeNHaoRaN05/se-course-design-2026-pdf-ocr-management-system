@@ -96,9 +96,9 @@ export default function ReaderPage() {
               defaultValue={pageNo} min={1} max={maxPage} required style={{ width: "5em" }} />
             <button type="submit">跳转</button>
           </form>
-          <button aria-label="缩小显示" onClick={() => setScale((s) => Math.max(0.5, s - 0.2))}>-</button>
+          <button aria-label="缩小显示" onClick={() => setScale((s) => Math.max(0.5, Number((s - 0.1).toFixed(1))))}>-</button>
           <span className="muted">{Math.round(scale * 100)}%</span>
-          <button aria-label="放大显示" onClick={() => setScale((s) => Math.min(3, s + 0.2))}>+</button>
+          <button aria-label="放大显示" onClick={() => setScale((s) => Math.min(3, Number((s + 0.1).toFixed(1))))}>+</button>
           <strong>{file?.name ?? "…"}</strong>
         </div>
         <div className="page-canvas-wrap" style={{ marginTop: 12 }}>
