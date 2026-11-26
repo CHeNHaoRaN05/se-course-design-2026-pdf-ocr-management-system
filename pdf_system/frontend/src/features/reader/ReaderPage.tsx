@@ -17,7 +17,7 @@ export default function ReaderPage() {
   const [params, setParams] = useSearchParams();
   const [file, setFile] = useState<FileItem | null>(null);
   const [pageNo, setPageNo] = useState(Number(params.get("page") ?? 1));
-  const [scale, setScale] = useState(1.2);
+  const [scale, setScale] = useState(1);
   const [jobId, setJobId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState("");
@@ -96,14 +96,20 @@ export default function ReaderPage() {
               defaultValue={pageNo} min={1} max={maxPage} required style={{ width: "5em" }} />
             <button type="submit">跳转</button>
           </form>
-          <button onClick={() => setScale((s) => Math.max(0.5, s - 0.2))}>-</button>
-          <button onClick={() => setScale((s) => Math.min(3, s + 0.2))}>+</button>
+          <button aria-label="缩小显示" onClick={() => setScale((s) => Math.max(0.5, s - 0.2))}>-</button>
+          <span className="muted">{Math.round(scale * 100)}%</span>
+          <button aria-label="放大显示" onClick={() => setScale((s) => Math.min(3, s + 0.2))}>+</button>
           <strong>{file?.name ?? "…"}</strong>
         </div>
         <div className="page-canvas-wrap" style={{ marginTop: 12 }}>
           {file?.media_type === "application/pdf" && <canvas ref={canvasRef} />}
           {file?.media_type !== "application/pdf" && imageUrl && (
-            <img className="reader-image" src={imageUrl} alt={file?.name ?? "图片"} />
+            <img
+              className="reader-image"
+              src={imageUrl}
+              alt={file?.name ?? "图片"}
+              style={{ width: `${Math.round(scale * 100)}%` }}
+            />
           )}
           {file?.media_type !== "application/pdf" && !imageUrl && !imageError && (
             <p className="muted">正在加载图片…</p>

@@ -2443,12 +2443,14 @@
 :where(.management-ui)
   .page-canvas-wrap:not(:where(.reader-area, .reader-area *)) {
   position: relative;
-  display: inline-block;
+  display: block;
+  max-width: 100%;
+  overflow: auto;
 }
 :where(.management-ui)
   .reader-image:not(:where(.reader-area, .reader-area *)) {
   display: block;
-  max-width: 100%;
+  max-width: none;
   height: auto;
   object-fit: contain;
 }
