@@ -14,7 +14,6 @@ const AccountPage = lazy(() => import("../features/auth/AccountPage"));
 const SharesPage = lazy(() => import("../features/share/SharesPage"));
 const PublicSharePage = lazy(() => import("../features/share/PublicSharePage"));
 const UsersPage = lazy(() => import("../features/admin/UsersPage"));
-const AuditPage = lazy(() => import("../features/admin/AuditPage"));
 
 function Guard({ children }: { children: JSX.Element }) {
   const { token, me, ready, error, retry } = useAuth();
@@ -82,14 +81,6 @@ export default function AppRoutes() {
             element={
               <AdminGuard>
                 <UsersPage />
-              </AdminGuard>
-            }
-          />
-          <Route
-            path="/admin/audit"
-            element={
-              <AdminGuard>
-                <AuditPage />
               </AdminGuard>
             }
           />

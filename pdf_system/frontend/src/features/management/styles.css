@@ -997,6 +997,15 @@
   color: var(--brand);
   background: transparent;
 }
+:where(.management-ui)
+  .file-table
+  .filename-button:not(:where(.reader-area, .reader-area *)) {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 :where(.management-ui) .file-tags:not(:where(.reader-area, .reader-area *)) {
   display: flex;
   flex-wrap: wrap;
@@ -1179,7 +1188,12 @@
   .filename-button:not(:where(.reader-area, .reader-area *)) {
   margin: 14px 0 7px;
   font-size: 12px;
-  min-height: 36px;
+  min-height: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 :where(.management-ui)
   .document-card
@@ -2430,6 +2444,13 @@
   .page-canvas-wrap:not(:where(.reader-area, .reader-area *)) {
   position: relative;
   display: inline-block;
+}
+:where(.management-ui)
+  .reader-image:not(:where(.reader-area, .reader-area *)) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
 }
 :where(.management-ui) .ocr-box:not(:where(.reader-area, .reader-area *)) {
   position: absolute;

@@ -5,6 +5,7 @@ import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { api, tokenStore } from "../../shared/http";
 import type { FileItem } from "../../shared/types";
+import { fileBlob } from "../files/filesApi";
 import { latestJobOf } from "../ocr/ocrApi";
 import OcrPanel from "../ocr/OcrPanel";
 import ReaderNotes from "./ReaderNotes";
@@ -18,6 +19,8 @@ export default function ReaderPage() {
   const [pageNo, setPageNo] = useState(Number(params.get("page") ?? 1));
   const [scale, setScale] = useState(1.2);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => { void api<FileItem>(`/files/${fileId}`).then(setFile); }, [fileId]);
@@ -43,6 +46,32 @@ export default function ReaderPage() {
     })().catch(() => undefined);
     return () => { cancelled = true; };
   }, [file, fileId, pageNo, scale]);
+
+  useEffect(() => {
+    if (!file || file.media_type === "application/pdf") {
+      setImageUrl(null);
+      setImageError("");
+      return;
+    }
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    setImageUrl(null);
+    setImageError("");
+    void fileBlob(fileId, controller.signal)
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setImageUrl(objectUrl);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setImageError(error instanceof Error ? error.message : "图片加载失败");
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [file, fileId]);
 
   const maxPage = useMemo(() => file?.page_count ?? 1, [file]);
 
@@ -72,7 +101,14 @@ export default function ReaderPage() {
           <strong>{file?.name ?? "…"}</strong>
         </div>
         <div className="page-canvas-wrap" style={{ marginTop: 12 }}>
-          <canvas ref={canvasRef} />
+          {file?.media_type === "application/pdf" && <canvas ref={canvasRef} />}
+          {file?.media_type !== "application/pdf" && imageUrl && (
+            <img className="reader-image" src={imageUrl} alt={file?.name ?? "图片"} />
+          )}
+          {file?.media_type !== "application/pdf" && !imageUrl && !imageError && (
+            <p className="muted">正在加载图片…</p>
+          )}
+          {imageError && <p className="error" role="alert">{imageError}</p>}
         </div>
       </div>
       <div style={{ flex: 1 }}>

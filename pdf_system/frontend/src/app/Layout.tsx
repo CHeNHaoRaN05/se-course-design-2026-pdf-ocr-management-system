@@ -45,7 +45,6 @@ export default function Layout() {
     [
       ...groups.flatMap((group) => group.items),
       ["/admin/users", "", "用户与角色"],
-      ["/admin/audit", "", "操作日志"],
     ].find(([path]) => location.pathname === path)?.[2] ?? "文档阅读";
   return (
     <div className={`workspace ${menu ? "menu-open" : ""}`}>
@@ -96,10 +95,6 @@ export default function Layout() {
               <NavLink to="/admin/users" onClick={() => setMenu(false)}>
                 <Icon name="users" />
                 用户与角色
-              </NavLink>
-              <NavLink to="/admin/audit" onClick={() => setMenu(false)}>
-                <Icon name="list" />
-                操作日志
               </NavLink>
             </div>
           )}

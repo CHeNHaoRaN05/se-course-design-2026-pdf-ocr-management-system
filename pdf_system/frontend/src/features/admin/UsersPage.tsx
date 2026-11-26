@@ -270,7 +270,6 @@ export default function UsersPage() {
                   ["下载文档", true, true, true],
                   ["创建 / 撤销分享", true, false, true],
                   ["用户与角色管理", false, false, true],
-                  ["全局审计", false, false, true],
                 ].map(([label, ...permissions]) => (
                   <tr key={String(label)}>
                     <td>{label}</td>

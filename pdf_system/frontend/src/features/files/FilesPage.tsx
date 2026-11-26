@@ -44,8 +44,6 @@ export default function FilesPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [hash, setHash] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
   const resource = useResource(
     (signal) =>
       queryFiles(
@@ -56,14 +54,12 @@ export default function FilesPage() {
           ...(type ? { media_type: type } : {}),
           ...(status ? { status } : {}),
           sort,
-          ...(dateFrom ? { date_from: dateFrom } : {}),
-          ...(dateTo ? { date_to: dateTo } : {}),
           limit: String(PAGE_SIZE),
           offset: String((page - 1) * PAGE_SIZE),
         },
         signal,
       ),
-    [q, folder, tag, type, status, sort, dateFrom, dateTo, page],
+    [q, folder, tag, type, status, sort, page],
   );
   useEffect(() => onFilesChanged(resource.reload), [resource.reload]);
   const metadata = useResource(
@@ -88,9 +84,7 @@ export default function FilesPage() {
     folder ||
     tag ||
     type ||
-    status ||
-    dateFrom ||
-    dateTo
+    status
   );
   useEffect(() => {
     if (
@@ -100,7 +94,7 @@ export default function FilesPage() {
     )
       setPage(Math.max(1, Math.ceil(resource.data.total / PAGE_SIZE)));
   }, [resource.data, page]);
-  useEffect(() => setPage(1), [q, folder, tag, type, status, sort, dateFrom, dateTo]);
+  useEffect(() => setPage(1), [q, folder, tag, type, status, sort]);
   // 状态服务不可用时仍展示服务端返回的文档；解除旧条件使用户能重新选择。
   useEffect(() => {
     if (resource.data && !resource.data.status_available) {
@@ -327,22 +321,6 @@ export default function FilesPage() {
                 状态排序
               </option>
             </select>
-            <label>
-              开始日期（UTC）
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </label>
-            <label>
-              结束日期（UTC）
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </label>
           </div>
           {tag && (
             <div className="active-filter">
@@ -387,8 +365,6 @@ export default function FilesPage() {
                       setTag("");
                       setType("");
                       setStatus("");
-                      setDateFrom("");
-                      setDateTo("");
                     }}
                   >
                     清除筛选
@@ -417,6 +393,7 @@ export default function FilesPage() {
                           <div>
                             <button
                               className="filename-button"
+                              title={file.name}
                               onClick={() => {
                                 setDetail(file);
                                 setHash("");
@@ -478,6 +455,7 @@ export default function FilesPage() {
                   </div>
                   <button
                     className="filename-button"
+                    title={file.name}
                     onClick={() => {
                       setDetail(file);
                       setHash("");
@@ -536,10 +514,6 @@ export default function FilesPage() {
             <dd>{formatBytes(detail.size)}</dd>
             <dt>总页数</dt>
             <dd>{detail.page_count} 页</dd>
-            <dt>识别代次</dt>
-            <dd>
-              {files.find((f) => f.id === detail.id)?.generation ?? "不可用"}
-            </dd>
             <dt>上传时间</dt>
             <dd>{formatDate(detail.created_at, true)}</dd>
             <dt>所属分类</dt>
