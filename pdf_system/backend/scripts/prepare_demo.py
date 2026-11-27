@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import io
 import sys
+import uuid
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -121,6 +122,58 @@ def seed_files(api: str, email: str, password: str, folder: Path, count: int) ->
     return created
 
 
+def seed_index(email: str, limit: int = 3) -> list[str]:
+    """写入一套“已完成识别”的测试夹具，让检索/导出可在无 OCR worker 时被验证。
+
+    这不是伪造识别能力：夹具只在演示库里模拟一次已经成功的任务结果，用于验证
+    检索、片段与导出链路；准确率与真实识别仍以 OCR worker 的实测为准。
+    """
+    from backend.models import File
+
+    settings = get_settings()
+    if str(settings.ocr_package_dir) not in sys.path:
+        sys.path.insert(0, str(settings.ocr_package_dir))
+    from ocr_service.db import File as OcrFile, Job as OcrJob, Page as OcrPage, TextIndex, now
+
+    engine = build_engine(settings)
+    sessions = build_session_factory(engine)
+    seeded: list[str] = []
+    with sessions.begin() as session:
+        user = session.scalar(select(User).where(User.email == email))
+        if user is None:
+            return seeded
+        files = session.scalars(
+            select(File).where(File.owner_id == user.id, File.deleted_at.is_(None)).limit(limit)
+        ).all()
+        for record in files:
+            exists = session.scalar(select(TextIndex).where(TextIndex.file_id == record.id))
+            if exists is not None:
+                continue
+            if session.get(OcrFile, record.id) is None:
+                session.add(OcrFile(id=record.id, owner_id=record.owner_id, name=record.name,
+                                    storage_key=record.storage_key, media_type=record.media_type,
+                                    sha256="0" * 64, size=record.size,
+                                    page_count=record.page_count, generation=0))
+                session.flush()
+            job_id = uuid.uuid4().hex
+            session.add(OcrJob(id=job_id, file_id=record.id, generation=0, owner_id=record.owner_id,
+                               status="succeeded", options={"pages": list(range(1, record.page_count + 1))},
+                               attempts=1, finished_at=now()))
+            session.flush()
+            for page_no in range(1, record.page_count + 1):
+                text = (f"{record.name} 第 {page_no} 页 验收 文档 检索 示例 "
+                        f"100%_\\ <script>alert(1)</script>")
+                session.add(OcrPage(job_id=job_id, page_no=page_no, status="succeeded",
+                                    revision=0, result={"text": text, "blocks": [], "tables": [],
+                                                        "corrected": False, "image_key": "",
+                                                        "coordinate_system": "normalized"}))
+                session.add(TextIndex(id=uuid.uuid4().hex, file_id=record.id,
+                                      page_no=page_no, job_id=job_id, revision=0, content=text))
+            seeded.append(record.name)
+    engine.dispose()
+    return seeded
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="准备演示账号与样本文件")
     parser.add_argument("--password", default="Demo12345")
@@ -128,6 +181,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="test_materials/demo", help="样本输出目录（相对 pdf_system）")
     parser.add_argument("--count", type=int, default=14, help="document-NN.pdf 的数量，用于分页演示")
     parser.add_argument("--seed", action="store_true", help="登录 demo-user 并上传 document-NN 系列")
+    parser.add_argument("--seed-index", action="store_true",
+                        help="写入一套已完成识别的检索夹具（验证检索/导出，不证明识别准确率）")
     parser.add_argument("--api", default="http://127.0.0.1:8000")
     args = parser.parse_args(argv)
 
@@ -145,6 +200,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.seed:
         names = seed_files(args.api, f"demo-user@{args.domain}", args.password, folder, args.count)
         print(f"已通过 {args.api} 上传 {len(names)} 个分页样本")
+
+    if args.seed_index:
+        seeded = seed_index(f"demo-user@{args.domain}")
+        print(f"已写入检索夹具：{seeded}")
     return 0
 
 
