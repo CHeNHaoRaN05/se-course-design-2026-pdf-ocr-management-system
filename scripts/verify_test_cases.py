@@ -46,10 +46,12 @@ def main():
     # AUTH
     r = c.post(f"{API}/auth/register", json={"email": ua, "password": "Password123"})
     body = r.json() if r.status_code < 300 else {}
+    tok = body.get("access_token", "")
+    me1 = c.get(f"{API}/auth/me", headers=h(tok)) if tok else None
     rec("TC-AUTH-01", r.status_code == 201 and "access_token" in body
-        and "password" not in r.text.lower() and body.get("role") == "user",
-        f"register={r.status_code} role={body.get('role')}")
-    tok = body["access_token"]
+        and "password" not in r.text.lower() and body.get("role") == "user"
+        and me1 is not None and me1.status_code == 200 and me1.json().get("role") == "user",
+        f"register={r.status_code} role={body.get('role')} me={me1.status_code if me1 else '-'}")
 
     bad = c.post(f"{API}/auth/login", json={"email": ua, "password": "Wrong123"})
     good = c.post(f"{API}/auth/login", json={"email": ua, "password": "Password123"})
@@ -101,7 +103,8 @@ def main():
     got = c.get(f"{API}/files/{fid}", headers=h(tok)).json()
     rec("TC-FILE-01", up.status_code == 201 and up.json()["page_count"] == 2
         and patch.status_code == 200 and got["folder"] == "/课程设计" and "验收" in got["tags"],
-        f"upload={up.status_code} pages={up.json().get('page_count')} folder={got.get('folder')} tags={got.get('tags')}")
+        f"upload={up.status_code} patch={patch.status_code} pages={up.json().get('page_count')} "
+        f"folder={got.get('folder')} tags={got.get('tags')}")
 
     names = []
     for _ in range(4):
@@ -162,10 +165,13 @@ def main():
                 files={"file": ("download.pdf", (SAMPLES / "D-01-两页正常.pdf").read_bytes(), "application/pdf")}).json()["id"]
     content = c.get(f"{API}/files/{dl}/content", headers=h(tok))
     anon = c.get(f"{API}/files/{dl}/content")
+    other = c.get(f"{API}/files/{dl}/content", headers=h(tok_b))
     rec("TC-FILE-07", content.status_code == 200
         and content.headers["content-type"].startswith("application/pdf")
-        and "download.pdf" in content.headers.get("content-disposition", "") and anon.status_code == 401,
-        f"content={content.status_code} disp={content.headers.get('content-disposition','')[:36]} anon={anon.status_code}")
+        and "download.pdf" in content.headers.get("content-disposition", "")
+        and anon.status_code == 401 and other.status_code == 404,
+        f"content={content.status_code} disp={content.headers.get('content-disposition','')[:36]} "
+        f"anon={anon.status_code} 他人={other.status_code}")
 
     codes = [
         c.get(f"{API}/files/{dl}", headers=h(tok_b)).status_code,
@@ -198,14 +204,16 @@ def main():
     s1 = c.post(f"{API}/share", headers=h(tok),
                 json={"file_id": dl, "expires_in_days": 7, "access_code": "abc123", "allow_download": False})
     st1 = s1.json()["token"]
+    wrong = c.get(f"{API}/share/token/{st1}", params={"code": "wrong1"})
     meta = c.get(f"{API}/share/token/{st1}", params={"code": "abc123"})
     pv = c.get(f"{API}/share/token/{st1}/pages/1", params={"code": "abc123"})
     pv_bad = c.get(f"{API}/share/token/{st1}/pages/3", params={"code": "abc123"})
-    rec("TC-SHARE-01", s1.status_code == 201 and meta.status_code == 200
+    rec("TC-SHARE-01", s1.status_code == 201 and wrong.status_code == 404 and meta.status_code == 200
         and meta.headers["content-type"].startswith("application/json")
         and pv.status_code == 200 and pv.headers["content-type"] == "image/png"
         and pv_bad.status_code == 422,
-        f"create={s1.status_code} meta={meta.status_code} page1={pv.status_code}/{pv.headers.get('content-type')} page3={pv_bad.status_code}")
+        f"create={s1.status_code} 错误码={wrong.status_code} meta={meta.status_code} "
+        f"page1={pv.status_code}/{pv.headers.get('content-type')} page3={pv_bad.status_code}")
 
     rev = c.delete(f"{API}/share/{s1.json()['id']}", headers=h(tok))
     gone_t = c.get(f"{API}/share/token/{st1}", params={"code": "abc123"})
@@ -229,11 +237,12 @@ def main():
         f"create={s2.status_code} guest={direct.status_code} type={direct.headers.get('content-type')}")
 
     # SEARCH
-    hit = c.get(f"{API}/search", headers=h(tok), params={"q": "验收"}).json()
+    hit_resp = c.get(f"{API}/search", headers=h(tok), params={"q": "验收"})
+    hit = hit_resp.json()
     first = hit["items"][0] if hit.get("items") else {}
     rec("TC-SEARCH-01", hit.get("backend") == "substring" and len(hit.get("items", [])) >= 3
         and {"file_name", "page_no", "snippet"} <= set(first),
-        f"backend={hit.get('backend')} items={len(hit.get('items', []))}")
+        f"search={hit_resp.status_code} backend={hit.get('backend')} items={len(hit.get('items', []))}")
 
     sug = c.get(f"{API}/search/suggest", headers=h(tok), params={"q": "doc"})
     blank = c.get(f"{API}/search", headers=h(tok), params={"q": " "})
@@ -257,15 +266,17 @@ def main():
         rec("TC-SEARCH-04",
             degraded.status_code == 200 and degraded.json().get("backend") == "ocr_not_ready"
             and degraded.json().get("items") == [] and dcap.json().get("mounted") is False,
-            f"降级实例 backend={degraded.json().get('backend')} items={len(degraded.json().get('items', []))} mounted={dcap.json().get('mounted')}")
+            f"降级实例 search={degraded.status_code} backend={degraded.json().get('backend')} "
+            f"items={len(degraded.json().get('items', []))} cap={dcap.status_code} mounted={dcap.json().get('mounted')}")
         dclient.close()
     else:
         rec("TC-SEARCH-04", False, "未提供降级实例地址", "需要 PDF_OCR_ENABLED=false 的第二个服务")
 
     # OCR
-    cap = c.get(f"{API}/ocr-host/capabilities", headers=h(tok)).json()
-    rec("TC-OCR-01", cap.get("mounted") is True and "quota_per_month" in cap,
-        f"mounted={cap.get('mounted')} quota={cap.get('quota_per_month')}")
+    cap_resp = c.get(f"{API}/ocr-host/capabilities", headers=h(tok))
+    cap = cap_resp.json()
+    rec("TC-OCR-01", cap_resp.status_code == 200 and cap.get("mounted") is True and "quota_per_month" in cap,
+        f"capabilities={cap_resp.status_code} mounted={cap.get('mounted')} quota={cap.get('quota_per_month')}")
 
     f_ocr = c.post(f"{API}/files", headers=h(tok),
                    files={"file": ("ocr-2p.pdf", (SAMPLES / "D-01-两页正常.pdf").read_bytes(), "application/pdf")}).json()["id"]
@@ -278,13 +289,16 @@ def main():
     job = j1.json()["id"]
 
     time.sleep(1)
-    detail = c.get(f"{API}/ocr/jobs/{job}", headers=h(tok)).json()
-    pg = c.get(f"{API}/ocr/jobs/{job}/pages", headers=h(tok)).json()
+    job_resp = c.get(f"{API}/ocr/jobs/{job}", headers=h(tok))
+    detail = job_resp.json()
+    pages_resp = c.get(f"{API}/ocr/jobs/{job}/pages", headers=h(tok))
+    pg = pages_resp.json()
     rec("TC-OCR-03", detail["status"] in {"queued", "running"}
         and 0 <= detail["progress"]["percent"] <= 100
         and all(p["status"] in {"pending", "failed"} for p in pg)
         and detail["progress"]["succeeded"] == 0,
-        f"status={detail['status']} percent={detail['progress']['percent']} pages={[p['status'] for p in pg]}")
+        f"job={job_resp.status_code} status={detail['status']} percent={detail['progress']['percent']} "
+        f"pages={pages_resp.status_code}/{len(pg)}")
 
     cancel = c.post(f"{API}/ocr/jobs/{job}/cancel", headers=h(tok))
     cancel2 = c.post(f"{API}/ocr/jobs/{job}/cancel", headers=h(tok))
