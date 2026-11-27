@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 
 from ...core.audit import audit
-from ...core.errors import bad_request, conflict
+from ...core.errors import conflict, forbidden, unauthorized
 from ...models import RevokedToken, User, now
 from ...core.security import (create_access_token, decode_token, hash_password,
                               verify_password)
@@ -37,7 +37,7 @@ def login(session, settings, body: LoginIn) -> TokenOut:
     user = session.scalar(select(User).where(func.lower(User.email) == email))
     # 不区分"邮箱不存在"与"密码错误"，避免账号枚举
     if user is None or user.disabled or not verify_password(body.password, user.password_hash):
-        raise bad_request("邮箱或密码不正确")
+        raise unauthorized("邮箱或密码不正确")
     user.login_count += 1
     user.last_login_at = now()
     audit(session, user.id, "user_logged_in", user.id)
@@ -84,7 +84,7 @@ def change_password(session, settings, user_id: str, body: ChangePasswordIn) -> 
     """FR-USER-02：校验原密码 → 改密 → token_version 自增（全部旧令牌失效）→ 发新令牌。"""
     record = session.get(User, user_id)
     if record is None or not verify_password(body.old_password, record.password_hash):
-        raise bad_request("原密码不正确")
+        raise forbidden("原密码不正确")
     record.password_hash = hash_password(body.new_password)
     record.token_version = (record.token_version or 0) + 1
     audit(session, user_id, "user_password_changed", user_id)

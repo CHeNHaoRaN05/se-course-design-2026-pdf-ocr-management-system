@@ -3,7 +3,9 @@
 依赖 conftest.make_env（独立 SQLite + 真实 app）。
 状态码约定（来自 core/errors 与本仓库 FastAPI 配置）：
   - 缺令牌 / 令牌无效或过期 / 被禁用 / 被吊销 / 改密后旧令牌  -> 401
-  - bad_request（含原密码错误、自禁防护）                    -> 422
+  - 凭据错误（登录邮箱不存在、密码错误）                       -> 401
+  - forbidden（原密码错误、自禁防护）                         -> 403
+  - bad_request（其余业务参数）                              -> 422
   - pydantic 校验失败（邮箱格式、密码长度、多余字段、枚举）  -> 422
   - 非管理员访问管理员接口                                  -> 403
   - not_found（越权/不存在）                                -> 404
@@ -75,13 +77,13 @@ def test_login_wrong_password(client):
     register(client, "login2@example.com")
     r = client.post("/api/v1/auth/login",
                     json={"email": "login2@example.com", "password": "wrongpass1"})
-    assert r.status_code == 422
+    assert r.status_code == 401
 
 
 def test_login_nonexistent(client):
     r = client.post("/api/v1/auth/login",
                     json={"email": "nobody@example.com", "password": "secret12345"})
-    assert r.status_code == 422
+    assert r.status_code == 401
 
 
 # ---------------- /me ----------------
@@ -254,7 +256,7 @@ def test_change_password_wrong_old(client):
     token = register(client, "cp@example.com")
     r = client.post("/api/v1/auth/change-password", headers=auth(token),
                     json={"old_password": "wrongpass1", "new_password": "newsecret12345"})
-    assert r.status_code == 422  # bad_request：原密码不正确
+    assert r.status_code == 403  # forbidden：原密码不正确（不用 401，避免前端清凭据）
 
 
 def test_change_password_short_new(client):
@@ -276,4 +278,4 @@ def test_change_password_success_invalidates_old(client):
     # 新密码可登录，旧密码不可
     assert _login(client, "cpm@example.com", "newsecret12345")
     assert client.post("/api/v1/auth/login",
-                      json={"email": "cpm@example.com", "password": "secret12345"}).status_code == 422
+                      json={"email": "cpm@example.com", "password": "secret12345"}).status_code == 401

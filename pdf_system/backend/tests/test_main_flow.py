@@ -20,10 +20,11 @@ def test_missing_token_is_401(client):
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
-def test_wrong_password_is_422(client):
+def test_wrong_password_is_401(client):
     register(client, "alice@example.com")
     response = client.post("/api/v1/auth/login", json={"email": "alice@example.com", "password": "bad"})
-    assert response.status_code == 422
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
 
 
 def test_duplicate_register_is_409(client):
