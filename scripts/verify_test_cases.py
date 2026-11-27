@@ -10,6 +10,7 @@ SEC-02/03，仅可对演示库执行。
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import time
 import uuid
@@ -20,6 +21,8 @@ import httpx
 BASE = sys.argv[1]
 OUT = Path(sys.argv[2])
 SAMPLES = Path(sys.argv[3])
+STORAGE = Path(sys.argv[5]) if len(sys.argv) > 5 else None
+DEGRADED = sys.argv[6] if len(sys.argv) > 6 else None
 API = BASE + "/api/v1"
 results: list[dict] = []
 
@@ -246,8 +249,18 @@ def main():
     rec("TC-SEARCH-03", len(pct.get("items", [])) >= 1 and len(xss.get("items", [])) >= 1 and literal,
         f"percent={len(pct.get('items', []))} script={len(xss.get('items', []))} literal={literal}")
 
-    # SEARCH-04 需要 OCR 未挂载实例，单独脚本校验
-    rec("TC-SEARCH-04", True, "见降级实例校验（8127）", "未挂载时 backend=ocr_not_ready")
+    # SEARCH-04：对着 OCR 未挂载的实例实测降级分支
+    if DEGRADED:
+        dclient = httpx.Client(base_url=DEGRADED.rstrip("/") + "/api/v1", timeout=30)
+        degraded = dclient.get("/search", headers=h(tok), params={"q": "验收"})
+        dcap = dclient.get("/ocr-host/capabilities", headers=h(tok))
+        rec("TC-SEARCH-04",
+            degraded.status_code == 200 and degraded.json().get("backend") == "ocr_not_ready"
+            and degraded.json().get("items") == [] and dcap.json().get("mounted") is False,
+            f"降级实例 backend={degraded.json().get('backend')} items={len(degraded.json().get('items', []))} mounted={dcap.json().get('mounted')}")
+        dclient.close()
+    else:
+        rec("TC-SEARCH-04", False, "未提供降级实例地址", "需要 PDF_OCR_ENABLED=false 的第二个服务")
 
     # OCR
     cap = c.get(f"{API}/ocr-host/capabilities", headers=h(tok)).json()
@@ -296,19 +309,54 @@ def main():
     c.post(f"{API}/ocr/jobs/{job2}/cancel", headers=h(tok))
     st_done = c.post(f"{API}/ocr-host/jobs/{job2}/settle", headers=h(tok))
     st_again = c.post(f"{API}/ocr-host/jobs/{job2}/settle", headers=h(tok))
-    rec("TC-OCR-07", st_queued.status_code == 409 and st_done.status_code == 200
-        and st_again.status_code == 200,
-        f"queued={st_queued.status_code} done={st_done.status_code} again={st_again.status_code}")
+
+    # 结算账本：造一个“页全部成功”的任务，验证只扣一次、重复结算不重复扣
+    f_ledger = c.post(f"{API}/files", headers=h(tok),
+                      files={"file": ("ledger.pdf", (SAMPLES / "D-01-两页正常.pdf").read_bytes(), "application/pdf")}).json()["id"]
+    job3 = c.post(f"{API}/ocr/jobs", headers=h(tok), json={"file_id": f_ledger}).json()["id"]
+    con = sqlite3.connect(sys.argv[4])
+    con.execute("UPDATE ocr_pages SET status='succeeded' WHERE job_id=?", (job3,))
+    con.execute("UPDATE ocr_jobs SET status='succeeded' WHERE id=?", (job3,))
+    con.commit()
+    con.close()
+    first = c.post(f"{API}/ocr-host/jobs/{job3}/settle", headers=h(tok))
+    con = sqlite3.connect(sys.argv[4])
+    closes = con.execute("SELECT COUNT(*) FROM quota_ledger WHERE ref_id=? AND reason='job_close'",
+                         (job3,)).fetchone()[0]
+    account = con.execute("SELECT pages_reserved, pages_used FROM quota_accounts WHERE user_id="
+                          "(SELECT id FROM users WHERE email=?) ORDER BY month DESC LIMIT 1",
+                          (ua,)).fetchone()
+    con.close()
+    second = c.post(f"{API}/ocr-host/jobs/{job3}/settle", headers=h(tok))
+    con = sqlite3.connect(sys.argv[4])
+    closes2 = con.execute("SELECT COUNT(*) FROM quota_ledger WHERE ref_id=? AND reason='job_close'",
+                          (job3,)).fetchone()[0]
+    used2 = con.execute("SELECT pages_used FROM quota_accounts WHERE user_id="
+                        "(SELECT id FROM users WHERE email=?) ORDER BY month DESC LIMIT 1",
+                        (ua,)).fetchone()[0]
+    con.close()
+    rec("TC-OCR-07",
+        st_queued.status_code == 409 and st_done.status_code == 200 and st_again.status_code == 200
+        and first.status_code == 200 and first.json().get("settled") is True
+        and closes == 1 and account is not None and account[0] == 0 and account[1] == 2
+        and second.json().get("settled") is False and closes2 == 1 and used2 == 2,
+        f"未终态={st_queued.status_code} 终态={st_done.status_code} 重复={st_again.status_code} "
+        f"成功任务 settled={first.json().get('settled')} 账本={closes} 已用={account} 再结算={second.json().get('settled')}/{closes2}/{used2}")
 
     # SEC
     trav = c.post(f"{API}/files", headers=h(tok),
                   files={"file": ("../secret.pdf", (SAMPLES / "D-01-两页正常.pdf").read_bytes(), "application/pdf")})
-    rec("TC-SEC-01", trav.status_code == 201 and ".." not in trav.json()["name"],
-        f"upload={trav.status_code} name={trav.json().get('name')}")
+    stored_ok, outside_ok = True, True
+    if STORAGE is not None:
+        blobs = list((STORAGE / "uploads").glob("*.bin"))
+        stored_ok = len(blobs) > 0 and all(b.resolve().is_relative_to(STORAGE.resolve()) for b in blobs)
+        outside_ok = not (STORAGE.parent / "secret.pdf").exists() and not Path("secret.pdf").exists()
+    rec("TC-SEC-01", trav.status_code == 201 and ".." not in trav.json()["name"]
+        and stored_ok and outside_ok,
+        f"upload={trav.status_code} name={trav.json().get('name')} 存储内={stored_ok} 外部无同名文件={outside_ok}")
 
     v_mail = f"case-v-{tag}@example.com"
     c.post(f"{API}/auth/register", json={"email": v_mail, "password": "Password123"})
-    import sqlite3
     con = sqlite3.connect(sys.argv[4])
     con.execute("UPDATE users SET role='viewer' WHERE email=?", (v_mail,))
     con.commit()
