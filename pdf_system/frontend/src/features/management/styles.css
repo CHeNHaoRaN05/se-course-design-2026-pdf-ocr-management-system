@@ -2874,3 +2874,28 @@
 
 /* 分类名称不使用原计数徽标的自动左边距。 */
 :where(.management-ui) .folder-tree .folder-name { margin-left: 0; }
+
+/* 分享只读预览：禁止下载时按页渲染，保持与阅读器一致的版心宽度。 */
+:where(.management-ui)
+  .public-share
+  .shared-preview:not(:where(.reader-area, .reader-area *)) {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+:where(.management-ui)
+  .public-share
+  .shared-preview
+  img:not(:where(.reader-area, .reader-area *)) {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+:where(.management-ui)
+  .public-share
+  .shared-preview-nav:not(:where(.reader-area, .reader-area *)) {
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}

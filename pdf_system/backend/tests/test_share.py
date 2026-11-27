@@ -144,3 +144,40 @@ def test_stats_increments_on_access(client):
     # 越权查看统计 -> 404
     other = register(client, "o4@example.com")
     assert client.get(f"/api/v1/share/{sid}/stats", headers=auth(other)).status_code == 404
+
+
+def test_guest_preview_pages_when_download_disabled(client):
+    """FR-SHR-04：禁下载时仍可只读浏览；预览按页出 PNG，且不重复累加访问次数。"""
+    from .conftest import pdf_bytes
+
+    token = register(client)
+    resp = client.post("/api/v1/files", headers=auth(token),
+                       files={"file": ("preview.pdf", pdf_bytes(2), "application/pdf")})
+    assert resp.status_code == 201, resp.text
+    fid = resp.json()["id"]
+    created = _share(client, token, fid, access_code="abcd", allow_download=False).json()
+    stoken = created["token"]
+
+    meta = client.get(f"/api/v1/share/token/{stoken}", params={"code": "abcd"})
+    assert meta.status_code == 200
+    assert meta.headers["content-type"].startswith("application/json")  # 仍不返回原文件
+
+    page = client.get(f"/api/v1/share/token/{stoken}/pages/1", params={"code": "abcd"})
+    assert page.status_code == 200
+    assert page.headers["content-type"] == "image/png"
+    assert page.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+    assert client.get(f"/api/v1/share/token/{stoken}/pages/3",
+                      params={"code": "abcd"}).status_code == 422
+    assert client.get(f"/api/v1/share/token/{stoken}/pages/1").status_code == 404  # 缺提取码
+
+    stats = client.get(f"/api/v1/share/{created['id']}/stats", headers=auth(token))
+    assert stats.status_code == 200
+    assert stats.json()["visit_count"] == 1  # 元数据 1 次；分页预览不再累加
+
+
+def test_guest_preview_rejects_non_pdf(client):
+    token = register(client)
+    fid = _upload(client, token)
+    stoken = _share(client, token, fid, allow_download=False).json()["token"]
+    assert client.get(f"/api/v1/share/token/{stoken}/pages/1").status_code == 415

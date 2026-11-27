@@ -21,6 +21,7 @@ export default function PublicSharePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [meta, setMeta] = useState<Metadata | null>(null);
+  const [pageNo, setPageNo] = useState(1);
   const [file, setFile] = useState<{ blob: Blob; filename: string } | null>(
     null,
   );
@@ -29,6 +30,7 @@ export default function PublicSharePage() {
     setFile(null);
     setCode("");
     setError("");
+    setPageNo(1);
   }, [token]);
   async function visit(event: FormEvent) {
     event.preventDefault();
@@ -106,9 +108,40 @@ export default function PublicSharePage() {
                   {meta && ` · ${meta.page_count} 页`}
                 </p>
                 {meta ? (
-                  <Notice>
-                    分享者仅开放文档信息，未开放原文件访问。如需阅读文件，请联系分享者调整权限。
-                  </Notice>
+                  meta.media_type === "application/pdf" ? (
+                    <div className="shared-preview">
+                      <img
+                        src={`/api/v1/share/token/${encodeURIComponent(token)}/pages/${pageNo}${
+                          code.trim() ? `?code=${encodeURIComponent(code.trim())}` : ""
+                        }`}
+                        alt={`第 ${pageNo} 页`}
+                      />
+                      <div className="row shared-preview-nav">
+                        <button
+                          disabled={pageNo <= 1}
+                          onClick={() => setPageNo((p) => Math.max(1, p - 1))}
+                        >
+                          上一页
+                        </button>
+                        <span className="muted">
+                          {pageNo} / {meta.page_count}
+                        </span>
+                        <button
+                          disabled={pageNo >= meta.page_count}
+                          onClick={() => setPageNo((p) => Math.min(meta.page_count, p + 1))}
+                        >
+                          下一页
+                        </button>
+                      </div>
+                      <Notice>
+                        分享者仅开放浏览，未开放原文件下载；如需原件请联系分享者调整权限。
+                      </Notice>
+                    </div>
+                  ) : (
+                    <Notice>
+                      分享者仅开放文档信息，未开放原文件访问。如需阅读文件，请联系分享者调整权限。
+                    </Notice>
+                  )
                 ) : (
                   <button
                     className="primary"

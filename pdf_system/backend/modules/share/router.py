@@ -3,13 +3,15 @@
 owner 侧（需 JWT）：创建 / 列表 / 详情 / 取消 / 统计。
 被分享者侧（旁路 token，无需 JWT）：GET /share/token/{token} 只读访问。
 """
+import io
+
 from fastapi import APIRouter, Depends, Query, Request, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from ...core.database import get_session
 from ...core.errors import bad_request
-from ...core.media import MediaError, safe_path
+from ...core.media import MediaError, render_page, safe_path
 from ...core.principal import Principal, current_user, share_access, require_editor
 from ...models import ShareLink, now
 from . import service, throttle
@@ -101,3 +103,34 @@ def view_token(token: str, request: Request, code: str | None = Query(default=No
     # 不允许下载：仅返回元数据，供前端只读预览
     return {"id": record.id, "name": record.name, "media_type": record.media_type,
             "page_count": record.page_count, "size": record.size}
+
+
+@router.get("/token/{token}/pages/{page_no}")
+def view_token_page(token: str, page_no: int, request: Request,
+                    code: str | None = Query(default=None, max_length=32),
+                    session: Session = Depends(get_session)):
+    """FR-SHR-04：禁止下载时游客仍可只读浏览——按页渲染成图片，不暴露原文件。
+
+    一次浏览可能翻多页，因此这里不重复累加 visit_count。
+    """
+    client = request.client.host if request.client else "unknown"
+    if not throttle.allow(client):
+        raise HTTPException(429, "分享访问过于频繁，请稍后重试", headers={"Retry-After": "60"})
+    link = share_access(token, session, code, count_visit=False)
+    record = service.shared_file(session, link)
+    settings = request.app.state.settings
+    if record.media_type != "application/pdf":
+        raise HTTPException(415, "仅 PDF 分享支持分页预览")
+    if page_no < 1 or page_no > record.page_count:
+        raise HTTPException(422, "页码超出文档范围")
+    try:
+        path = safe_path(settings.storage_dir, record.storage_key)
+        image = render_page(path, record.media_type, page_no, dpi=144,
+                            max_pixels=settings.max_pixels)
+    except MediaError as error:
+        raise bad_request(str(error))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return Response(content=buffer.getvalue(), media_type="image/png",
+                    headers={"X-Content-Type-Options": "nosniff",
+                             "Cache-Control": "private, no-store"})

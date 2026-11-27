@@ -96,11 +96,12 @@ def visible_files(statement, user: Principal):
     return statement
 
 
-def share_access(token: str, session, code: str | None = None) -> ShareLink:
+def share_access(token: str, session, code: str | None = None, *, count_visit: bool = True) -> ShareLink:
     """分享旁路解析：凭 token（非 JWT）校验分享链接，供被分享者只读访问。
 
     严格不改动 resolve_principal 主路径；错误 token / 过期 / 提取码不符统一 404，
-    避免泄露分享是否存在。返回前递增访问计数（visit_count）。
+    避免泄露分享是否存在。默认递增访问计数（visit_count）；预览分页图时传
+    count_visit=False，保证一次访问只计一次。
     """
     link = session.scalar(select(ShareLink).where(ShareLink.token == token))
     if link is None:
@@ -109,6 +110,8 @@ def share_access(token: str, session, code: str | None = None) -> ShareLink:
         raise not_found()
     if link.access_code is not None and link.access_code != (code or ""):
         raise not_found()
+    if not count_visit:
+        return link
     # Increment in SQL to avoid lost updates from concurrent readers.
     changed = session.execute(update(ShareLink).where(ShareLink.id == link.id,
         or_(ShareLink.expires_at.is_(None), ShareLink.expires_at > now())).values(
