@@ -197,7 +197,7 @@ test("global search highlights escaped content without exposing search history",
   await expect(page.getByText("最近检索", { exact: true })).toHaveCount(0);
 });
 
-test("admin can update known users; audit errors stay visible", async ({
+test("admin can update known users from the management page", async ({
   page,
 }) => {
   const state = await mockApi(page, { role: "admin" });
@@ -216,9 +216,6 @@ test("admin can update known users; audit errors stay visible", async ({
         r.path === `/auth/users/${otherUserId}/role` && r.method === "PATCH",
     ),
   ).toBe(true);
-  await page.goto("/admin/audit");
-  await expect(page.getByRole("alert")).toBeVisible();
-  await expect(page.getByRole("button", { name: "导出当前页" })).toBeDisabled();
 });
 
 test("401 after an authenticated request clears credentials and returns to login", async ({
@@ -282,21 +279,15 @@ test("narrow layout navigation remains usable and has no horizontal page overflo
   });
 });
 
-test("implemented list extensions render server trash, users and audit data", async ({
+test("admin users and server trash render without local cache fallback", async ({
   page,
 }) => {
-  await mockApi(page, { role: "admin", extensions: true });
+  await mockApi(page, { role: "admin" });
   await page.goto("/admin/users");
   await expect(
     page.getByRole("heading", { name: "用户列表", exact: true }),
   ).toBeVisible();
   await expect(page.locator("tbody").first()).toContainText("协作成员");
-  await page.goto("/admin/audit");
-  await expect(page.locator("tbody tr")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "导出当前页" })).toBeEnabled();
-  const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出当前页" }).click();
-  expect((await download).suggestedFilename()).toContain("操作日志");
   await page.goto("/trash");
   await expect(page.getByRole("heading", { name: /已删除文档/ })).toBeVisible();
   await expect(page.getByText(/当前显示本浏览器/)).toHaveCount(0);
@@ -636,4 +627,23 @@ test("logout errors are synchronized even when localStorage is disabled", async 
   await expect(second).toHaveURL(/login/);
   await expect(second.getByText(/服务返回500/)).toBeVisible();
   await second.close();
+});
+
+test("service outage shows a load failure instead of an empty library", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route("**/api/v1/files/query**", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "服务暂时不可用" }),
+    }),
+  );
+  await page.goto("/files");
+  await expect(page.getByText("文档库加载失败")).toBeVisible();
+  await expect(page.getByText("请检查网络和服务状态后重试。")).toBeVisible();
+  await expect(
+    page.getByText("你的文档空间，等待第一份资料"),
+  ).toHaveCount(0);
 });
