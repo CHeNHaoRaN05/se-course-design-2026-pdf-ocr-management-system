@@ -139,7 +139,7 @@ READ = [
       "点上一页/下一页，输入越界页码跳转。", "连续点缩小/放大到底。"],
      ["200，返回 2 项页尺寸。", "画布按页渲染，页码显示 1/2，首页“上一页”禁用。",
       "页码被钳制在 1–2，不会越界。", "缩放范围 50%–300%，到达端点后按钮不再改变数值。"],
-     "缩放上限按设计 V2.0 取 300%（需求原文 400%，差异见附录 B）；上下限钳制由 verify-demo-ui.mjs 的 full 模式在浏览器里实测。"),
+     "缩放上限按设计 V2.0 取 300%（需求原文 400%，设计阶段已作调整）；上下限钳制由 verify-demo-ui.mjs 的 full 模式在浏览器里实测。"),
     ("TC-READ-02", "添加与删除书签", "FR-READ-06", "P1",
      "已打开第 2 页。",
      "page_no=2；title=第 2 页",
@@ -345,6 +345,7 @@ def heading(doc, text, level):
     p = doc.add_heading(level=level)
     p.paragraph_format.space_before = Pt(12 if level == 1 else 8)
     p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.keep_with_next = True      # 标题不得单独留在页底
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     for run in p.runs:
         run.text = ""
@@ -357,6 +358,7 @@ def caption(doc, text):
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(3)
+    p.paragraph_format.keep_with_next = True      # 表题必须与表体同页
     set_run(p.add_run(text), size=9, bold=True)
     return p
 
@@ -381,19 +383,27 @@ def _height_rule(cm_value):
 
 
 def table(doc, headers, rows, widths, *, font=9, header_bold=True, first_col_bold=False, row_height=None, keep_together=True):
+    # 版心宽度固定 16.6cm（A4 21cm 减左右各 2.2cm）；按比例归一，避免表格比正文窄 4mm。
+    scale = 16.6 / sum(widths)
+    widths = [round(width * scale, 2) for width in widths]
     table_obj = doc.add_table(rows=1, cols=len(headers))
     table_obj.style = "Table Grid"
     table_obj.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_obj.autofit = False
     # 固定列宽：不写 tblLayout=fixed 时，Word/LibreOffice 会按内容重新分配，列宽设置失效。
     tblPr = table_obj._tbl.tblPr
-    layout = OxmlElement("w:tblLayout")
+    # python-docx 已带 tblW(type=auto)；再 append 会产生重复元素，读取方取第一个 0 宽。
+    layout = tblPr.find(qn("w:tblLayout"))
+    if layout is None:
+        layout = OxmlElement("w:tblLayout")
+        tblPr.append(layout)
     layout.set(qn("w:type"), "fixed")
-    tblPr.append(layout)
-    tblW = OxmlElement("w:tblW")
+    tblW = tblPr.find(qn("w:tblW"))
+    if tblW is None:
+        tblW = OxmlElement("w:tblW")
+        tblPr.append(tblW)
     tblW.set(qn("w:type"), "dxa")
     tblW.set(qn("w:w"), str(int(sum(widths) * 567)))
-    tblPr.append(tblW)
     # tblGrid 才是固定布局下列宽的真源；只改 tcW 时 LibreOffice/Word 仍按网格等分。
     for grid_col, width in zip(table_obj._tbl.tblGrid.gridCol_lst, widths):
         grid_col.set(qn("w:w"), str(int(width * 567)))
@@ -558,7 +568,7 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
               "功能范围以《需求分析文档》V1.1、《系统设计文档》V2.0 与最小必须功能集裁剪说明为准。")
     body(doc, "本轮只纳入能在当前环境稳定复现的行为：用户与权限、文件上传与管理、PDF 阅读、书签与批注、"
               "分享、全文检索与 OCR 任务状态机。校对、表格还原、阅读器高级交互、统计看板、"
-              "性能验收与真实识别准确率不在本轮通过条件内，逐项列入附录 B。")
+              "性能验收与真实识别准确率不在本轮通过条件内，其边界见 2.2。")
     body(doc, "每条用例只给前置条件、数据、步骤与可判定结果，不设现场填写栏；"
               "本文档只负责定义可判定预期，不承担执行记录。")
     doc.add_page_break()
@@ -623,8 +633,17 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
     ]:
         bullet(doc, item)
 
-    heading(doc, "2.2  不纳入与延期", 2)
-    body(doc, "以下项目本轮不做通过判定，对应需求逐条列入附录 B，标注“延期”或“范围调整”，不记为已实现。")
+    heading(doc, "2.2  不纳入范围", 2)
+    body(doc, "以下内容不在本轮测试与验收范围内，不作为通过条件，也不在本文档中给出用例：")
+    for item in [
+        "结果校对与表格还原（FR-COR、FR-TBL）。",
+        "阅读器高级交互：连续滚动、目录大纲、页内高亮、OCR 文本层、双视图、阅读位置记忆。",
+        "文件批量、合并、拆分的前端入口与文件版本列表。",
+        "统计看板与使用分析（FR-LOG-05）。",
+        "性能与容量指标（NFR-PERF 全部）、MySQL 部署与恢复演练。",
+        "OCR 真实识别准确率：本轮只判定任务状态机、接口契约与导出前置条件。",
+    ]:
+        bullet(doc, item)
 
     heading(doc, "2.3  测试基线", 2)
     caption(doc, "表 2-1  基线事实与复现命令")
@@ -641,13 +660,13 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
     caption(doc, "表 2-2  需求模块与用例对应")
     table(doc, ["需求模块", "需求编号范围", "用例", "本轮状态"], [
         ("用户与权限", "FR-USER-01~07", "TC-AUTH-01~06", "覆盖 01~05；06/07 由 SEC-03 间接覆盖"),
-        ("文件管理", "FR-FILE-01~11", "TC-FILE-01~08", "覆盖 01/02/03/04/05/06/11；07~10 见附录 B"),
-        ("PDF 阅读器", "FR-READ-01~09", "TC-READ-01~03", "覆盖 02/03/06/07；01 部分；04/05/08/09 见附录 B"),
-        ("OCR 识别", "FR-OCR-01~12", "TC-OCR-01~07", "覆盖 02/04/05/06/07/10；真实识别见附录 B"),
-        ("结果导出", "FR-EXP-01~06", "TC-OCR-06", "覆盖“未就绪拒绝”；成功导出见附录 B"),
-        ("全文检索", "FR-SEA-01~07", "TC-SEARCH-01~04", "覆盖 01/02/07；03~06 见附录 B"),
+        ("文件管理", "FR-FILE-01~11", "TC-FILE-01~08", "覆盖 01/02/03/04/05/06/11；07~10 不在本轮范围"),
+        ("PDF 阅读器", "FR-READ-01~09", "TC-READ-01~03", "覆盖 02/03/06/07；01 覆盖单页模式；04/05/08/09 不在本轮范围"),
+        ("OCR 识别", "FR-OCR-01~12", "TC-OCR-01~07", "覆盖 02/04/05/06/07/10；真实识别不在本轮判定"),
+        ("结果导出", "FR-EXP-01~06", "TC-OCR-06", "覆盖“未就绪拒绝”；成功导出依赖 OCR worker，不在本轮判定"),
+        ("全文检索", "FR-SEA-01~07", "TC-SEARCH-01~04", "覆盖 01/02/07；03~06 不在本轮范围"),
         ("分享与协作", "FR-SHR-01~04", "TC-SHARE-01~04", "全覆盖（04 按页面图只读口径）"),
-        ("配额、日志与统计", "FR-LOG-01~06", "TC-OCR-07、TC-SEC-03", "覆盖 02/04/06；01/03/05 见附录 B"),
+        ("配额、日志与统计", "FR-LOG-01~06", "TC-OCR-07、TC-SEC-03", "覆盖 02/04/06；01/03/05 不在本轮范围"),
         ("安全与可靠性", "NFR-SEC-01~08", "TC-SEC-01~04、TC-FILE-08", "覆盖 01/02/03/05/08"),
     ], [3.4, 4.2, 4.2, 4.4], font=9)
 
@@ -769,7 +788,7 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
         ("期望/实际", "分别写需求期望与实际行为"),
         ("严重度", "S1 阻塞、S2 严重、S3 一般、S4 轻微"),
         ("证据", "截图、请求、响应、日志或数据库记录"),
-        ("状态", "新建、已确认、修复待回归、关闭、延期"),
+        ("状态", "新建、已确认、修复待回归、关闭、挂起"),
     ], [3.0, 13.2], font=9)
 
     heading(doc, "6.2  通过准则", 2)
@@ -792,7 +811,7 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
         ("检索", "夹具下命中、片段、权限过滤与降级均实测", "真实识别文本的检索质量未评估"),
         ("界面行为", "缩放 50%/300% 钳制、503 错误态、片段不执行脚本、未挂载禁用，均浏览器实测",
          "仅 Chromium，未做多浏览器回归"),
-        ("性能与容量", "无", "NFR-PERF 全部延期"),
+        ("性能与容量", "无", "不在本轮范围（NFR-PERF）"),
     ], [3.6, 7.4, 5.2], font=9)
 
     # 附录
@@ -808,27 +827,6 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
         ("D-07", "检索夹具", "—", "检索、片段、转义"),
         ("D-08", "demo-user / demo-viewer / demo-admin", "—", "角色与越权"),
     ], [1.6, 6.4, 1.8, 6.6], font=9)
-
-    heading(doc, "附录 B  未覆盖项与延期", 1)
-    body(doc, "以下条目本轮不做通过判定，按“延期”或“范围调整”记录，不得在交付说明中表述为已实现。")
-    caption(doc, "表 B-1  延期与范围调整")
-    table(doc, ["需求", "内容", "现状", "处置"], [
-        ("FR-READ-01", "连续滚动与单页双模式", "仅单页 canvas", "延期"),
-        ("FR-READ-02", "缩放 50%–400%", "实现 50%–300%（设计 V2.0 已调整为 0.5–3）", "范围调整"),
-        ("FR-READ-04/05/08/09", "目录大纲、页内高亮、文本层、双视图", "未实现", "延期"),
-        ("FR-FILE-04", "回收站保留 30 天后自动清理", "无定时任务，仅手动彻底删除", "延期"),
-        ("FR-FILE-07/08/09", "批量、合并、拆分", "接口在，前端无入口", "延期（仅接口态）"),
-        ("FR-FILE-10", "版本与代次展示", "仅有 version 字段，无版本列表", "延期"),
-        ("FR-COR-01~06", "结果校对", "未实现", "延期"),
-        ("FR-TBL-01~04", "表格还原", "未实现", "延期"),
-        ("FR-LOG-01/03/05", "存储配额、超额拦截、统计看板", "后端部分在，前端未开放", "延期"),
-        ("FR-OCR-01/03/08/10/11/12", "图片识别、识别选项、真实页结果、并发与质量提示",
-         "接口与状态机可验证，真实识别依赖 worker 与权重", "延期（环境未满足）"),
-        ("FR-SEA-03~06", "跳转定位、过滤、历史、来源标注", "未实现或未覆盖", "延期"),
-        ("NFR-PERF-01~10", "响应时间、并发、内存等量化指标", "未做性能验收", "延期"),
-        ("NFR-SEC-04/06/07", "口令哈希、输出转义、数据不出本机",
-         "实现存在（加盐哈希、HTML/XLSX 转义、纯本地），仅静态核对", "部分覆盖"),
-    ], [3.6, 6.2, 4.6, 1.8], font=9)
 
     if not save:
         return
