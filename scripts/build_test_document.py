@@ -139,7 +139,7 @@ READ = [
       "点上一页/下一页，输入越界页码跳转。", "连续点缩小/放大到底。"],
      ["200，返回 2 项页尺寸。", "画布按页渲染，页码显示 1/2，首页“上一页”禁用。",
       "页码被钳制在 1–2，不会越界。", "缩放范围 50%–300%，到达端点后按钮不再改变数值。"],
-     "缩放上限按设计 V2.0 取 300%，需求原文为 400%，差异见附录 B。"),
+     "缩放上限按设计 V2.0 取 300%（需求原文 400%，差异见附录 B）；上下限钳制由 verify-demo-ui.mjs 的 full 模式在浏览器里实测。"),
     ("TC-READ-02", "添加与删除书签", "FR-READ-06", "P1",
      "已打开第 2 页。",
      "page_no=2；title=第 2 页",
@@ -204,7 +204,7 @@ SEARCH = [
      ["分别检索并查看片段。"],
      ["两者均按字面命中（各 ≥1 条），片段原样包含该字符串。",
       "页面以文本节点渲染片段，不执行脚本。"],
-     "片段转义发生在前端渲染层，接口按原文返回。"),
+     "片段按文本节点渲染（前端用文本插值，不拼 HTML）；verify-demo-ui.mjs 实测无脚本对话框。"),
     ("TC-SEARCH-04", "OCR 未挂载时的降级提示", "FR-SEA-01", "P1",
      "以 PDF_OCR_ENABLED=false 启动服务。",
      "q=验收；GET /ocr-host/capabilities",
@@ -220,8 +220,8 @@ OCR = [
      "mounted=true 与 false 两种实例",
      ["GET /api/v1/ocr-host/capabilities。"],
      ["200，返回 mounted、storage、device、quota_per_month。",
-      "mounted=false 时页面禁用提交并明确提示，不伪造成功。"],
-     ""),
+      "mounted=false 时页面提示“OCR 服务未挂载”，开始识别按钮禁用。"],
+     "未挂载分支由 verify-demo-ui.mjs 的 degraded 模式实测（第二个实例 PDF_OCR_ENABLED=false）。"),
     ("TC-OCR-02", "提交整册与指定页任务", "FR-OCR-02/04", "P0",
      "文件已同步到 OCR 侧；同一文件同时只允许一个活动任务。",
      "pages 留空；pages=[1]；pages=[99]",
@@ -259,12 +259,14 @@ OCR = [
       "format 非法 422。"],
      "五种格式的成功导出需 worker，属环境条件项。"),
     ("TC-OCR-07", "任务结算的时机与幂等", "FR-LOG-02", "P1",
-     "存在 queued 任务与其终态版本。",
-     "job_id",
+     "存在 queued 任务；另准备一个两页全部成功的任务。",
+     "job_id；成功任务的 2 个已成功页",
      ["未终态时 POST /ocr-host/jobs/{id}/settle。",
-      "取消后再次结算，并重复一次。"],
+      "取消后结算，并重复一次。",
+      "对成功任务结算，再结算一次，核对配额账本与已用页数。"],
      ["409（任务尚未结束，暂不结算）。",
-      "200；重复结算仍 200，账本不重复扣减。"],
+      "200，settled=true；账本只写 1 条 job_close，pages_used 等于成功页数，pages_reserved 归零。",
+      "再次结算 200，settled=false；job_close 仍 1 条，pages_used 不变。"],
      ""),
 ]
 
@@ -273,8 +275,8 @@ SEC = [
      "已登录。",
      "../secret.pdf",
      ["以带路径片段的文件名上传。"],
-     ["201，返回名称已净化为 secret.pdf；物理文件位于存储根目录内，无法读取外部文件。"],
-     ""),
+     ["201，返回名称已净化为 secret.pdf；物理文件落在存储目录 uploads/ 下，存储目录之外不产生同名文件。"],
+     "存储键固定为 uploads/{uid}.bin，原文件名不参与路径；脚本会遍历存储目录核对。"),
     ("TC-SEC-02", "只读角色阻断一切写操作", "NFR-SEC-02", "P0",
      "viewer 账号已由 prepare_demo 创建。",
      "viewer 令牌",
@@ -631,7 +633,8 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
         ("前端组件单测", "16 passed", "npm test"),
         ("真实链路 e2e", "8 条通过", "SE_PYTHON=<解释器> npm run test:live"),
         ("契约 e2e", "25 条（固定 fixture）", "npm run test:e2e"),
-        ("本轮接口用例", "36 / 36 PASS", "见 6.3"),
+        ("本轮接口用例", "36 / 36 PASS", "scripts/verify_test_cases.py"),
+        ("本轮界面用例", "4 / 4 PASS", "frontend/scripts/verify-demo-ui.mjs full|degraded"),
     ], [3.6, 5.4, 7.2], font=9)
 
     heading(doc, "2.4  需求覆盖矩阵", 2)
@@ -678,6 +681,10 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
     heading(doc, "3.3  数据与账号准备", 2)
     body(doc, "以下命令一次产出演示所需的账号与样本，避免现场手工造数据：")
     body(doc, "python -m backend.scripts.prepare_demo --seed --seed-index --api http://127.0.0.1:8000", indent=False)
+    body(doc, "需要演示“OCR 未挂载”分支时，用同一数据库再起一个实例："
+              "PDF_OCR_ENABLED=false uvicorn backend.main:create_app --factory --port 8001，"
+              "前端用 SE_API_TARGET=http://127.0.0.1:8001 另起一个 Vite（如 5174），"
+              "打开阅读器即可看到提示与禁用态。")
     caption(doc, "表 3-3  样本与账号")
     table(doc, ["产物", "内容", "用途"], [
         ("D-01", "2 页正常 PDF", "上传、阅读、标注、下载、OCR"),
@@ -783,6 +790,8 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
         ("前端页面", "16 条单测；真实链路 8 条通过", "阅读器缩放与游客预览仅做代码核对，未做视觉回归"),
         ("OCR 状态机", "提交/轮询/取消/重试/导出拒绝/结算均实测", "成功页与真实识别待 worker"),
         ("检索", "夹具下命中、片段、权限过滤与降级均实测", "真实识别文本的检索质量未评估"),
+        ("界面行为", "缩放 50%/300% 钳制、503 错误态、片段不执行脚本、未挂载禁用，均浏览器实测",
+         "仅 Chromium，未做多浏览器回归"),
         ("性能与容量", "无", "NFR-PERF 全部延期"),
     ], [3.6, 7.4, 5.2], font=9)
 
