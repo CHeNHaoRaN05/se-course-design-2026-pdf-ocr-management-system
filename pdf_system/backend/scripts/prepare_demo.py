@@ -131,8 +131,12 @@ def seed_index(email: str, limit: int = 3) -> list[str]:
     from backend.models import File
 
     settings = get_settings()
-    if str(settings.ocr_package_dir) not in sys.path:
-        sys.path.insert(0, str(settings.ocr_package_dir))
+    package_dir = Path(settings.ocr_package_dir).resolve()
+    if not (package_dir / "ocr_service").is_dir():
+        # .env 里可能写成相对路径；换工作目录执行时回退到仓库内的默认位置。
+        package_dir = Path(__file__).resolve().parents[3] / "pdf_ocr_module"
+    if str(package_dir) not in sys.path:
+        sys.path.insert(0, str(package_dir))
     from ocr_service.db import File as OcrFile, Job as OcrJob, Page as OcrPage, TextIndex, now
 
     engine = build_engine(settings)

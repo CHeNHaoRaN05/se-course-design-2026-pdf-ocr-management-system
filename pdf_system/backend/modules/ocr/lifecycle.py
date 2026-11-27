@@ -45,7 +45,12 @@ def purge_file(session, settings, file_id: str) -> None:
     from ocr_service.media import safe_path
     cancel_tasks(session, file_id)
     for job in session.scalars(select(Job).where(Job.file_id == file_id)):
-        settle_terminal(session, job)
+        try:
+            settle_terminal(session, job)
+        except ValueError:
+            # 历史任务可能没有 _quota 预留（升级前的入队路径）。彻底删除必须完成，
+            # 账本缺口交由 reconcile_terminal 的独立对账处理，不能因此 500。
+            log.warning("settle skipped during purge: job=%s reason=no-reservation", job.id)
     session.execute(delete(TextIndex).where(TextIndex.file_id == file_id))
     job_ids = [row for row in session.scalars(select(Job.id).where(Job.file_id == file_id))]
     if job_ids:

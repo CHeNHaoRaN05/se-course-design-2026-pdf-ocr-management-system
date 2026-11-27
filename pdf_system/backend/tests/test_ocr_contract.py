@@ -96,3 +96,27 @@ def test_c5_purge_clears_ocr_side(ocr_env):
         assert session.get(OcrFile, file["id"]) is None
         assert session.scalar(select(func.count(TextIndex.id))
                               .where(TextIndex.file_id == file["id"])) == 0
+
+
+def test_c5_purge_tolerates_job_without_quota_reservation(ocr_env):
+    """升级路径回归：options 里没有 _quota 的历史任务，彻底删除不得 500。
+
+    现场表现是 DELETE /files/{id}/purge 返回 500（ValueError: Quota reservation
+    missing），删不掉文件。对账由 reconcile_terminal 负责，删除本身必须幂等完成。
+    """
+    _, app, client = ocr_env
+    token = register(client)
+    file = _upload(client, token, "legacy.png")
+
+    from ocr_service.db import File as OcrFile, Job
+    import uuid
+    with app.state.sessions.begin() as session:
+        mirror = session.get(OcrFile, file["id"])
+        session.add(Job(id=uuid.uuid4().hex, file_id=file["id"], generation=0,
+                        owner_id=mirror.owner_id, status="succeeded",
+                        options={"pages": [1]}, attempts=1))
+
+    assert client.delete(f"/api/v1/files/{file['id']}", headers=auth(token)).status_code == 200
+    assert client.post(f"/api/v1/files/{file['id']}/restore", headers=auth(token)).status_code == 200
+    assert client.delete(f"/api/v1/files/{file['id']}", headers=auth(token)).status_code == 200
+    assert client.delete(f"/api/v1/files/{file['id']}/purge", headers=auth(token)).status_code == 204
