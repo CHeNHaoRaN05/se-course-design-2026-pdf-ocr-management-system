@@ -1599,6 +1599,51 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
       x-permission: public
+  /api/v1/share/token/{token}/pages/{page_no}:
+    get:
+      tags:
+      - 01 分享与协作·甲
+      summary: View Token Page
+      description: 'FR-SHR-04：禁止下载时游客仍可只读浏览——按页渲染成图片，不暴露原文件。
+
+
+        一次浏览可能翻多页，因此这里不重复累加 visit_count。'
+      operationId: view_token_page_api_v1_share_token__token__pages__page_no__get
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
+      - name: page_no
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Page No
+      - name: code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-permission: public
   /api/v1/ocr-host/capabilities:
     get:
       tags:
