@@ -23,13 +23,14 @@ python -m backend.scripts.run_local
 | 文档 | 内容 |
 |---|---|
 | [`docs/requirements/`](docs/requirements/) | 需求分析文档（Markdown 与 Word 正稿） |
-| [`docs/design/系统设计文档.md`](docs/design/系统设计文档.md) | 系统设计文档（架构、数据、接口、运行维护） |
+| [`docs/design/系统设计文档_V2.0.md`](docs/design/系统设计文档_V2.0.md) | 系统设计文档（架构、数据、接口、运行维护） |
 | [`docs/design/界面原型设计.md`](docs/design/界面原型设计.md) | 界面原型说明与截图索引 |
+| [`docs/testing/软件测试文档_27组.docx`](docs/testing/软件测试文档_27组.docx) | 软件测试计划与 36 条用例（Word 正稿） |
+| [`test_materials/`](test_materials/README.md) | 测试素材与使用说明（供各成员各自跑用例） |
 | [`docs/architecture.md`](docs/architecture.md) | 系统架构与接口总表 |
 | [`docs/api-contract.yaml`](docs/api-contract.yaml) | API 契约（OpenAPI） |
 | [`docs/database-design.md`](docs/database-design.md) / [`docs/er-diagram.mmd`](docs/er-diagram.mmd) | 数据库设计与 E-R 图 |
 | [`docs/features.md`](docs/features.md) | 功能点与需求编号总表 |
 | [`docs/development-baseline.md`](docs/development-baseline.md) | 公共限制、分工、优先级与验收 |
 | [`docs/team/`](docs/team/) | 各端开发指南（后端 / 前端 / 数据库 / 环境配置） |
-| [`docs/qa/`](docs/qa/) | 测试审查与复测报告 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 协作流程 |
