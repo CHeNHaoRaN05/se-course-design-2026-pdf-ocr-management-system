@@ -122,7 +122,9 @@ htmlcov/
 _docx_tmp/
 _ppt_tmp/
 docx_edit/
-test_materials/
 _out/
 _qa*/
 docs/testing/_drafts/
+
+# 注：test_materials/ 已入库（团队成员共用测试素材），不要再加忽略规则。
+#    其中 超出大小限制.bin 为 21 MB 定长垃圾数据，仅用于验证上传上限。

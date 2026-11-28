@@ -620,7 +620,7 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
         ("R3", "最小必须功能集实现状态", "2026-11-19，docs/测试审查报告/"),
         ("R4", "功能分层与裁剪建议", "2026-11-19，docs/测试审查报告/"),
         ("R5", "接口契约", "docs/api-contract.yaml"),
-        ("R6", "项目交接记录", "docs/项目交接_Codex_20261122.md"),
+        ("R6", "开发基线与验收", "docs/development-baseline.md"),
     ], [1.6, 7.4, 7.2], font=9)
 
     heading(doc, "1.4  术语与缩写", 2)
