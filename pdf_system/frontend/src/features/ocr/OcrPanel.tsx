@@ -5,7 +5,7 @@ import { useAuth } from "../../app/AuthProvider";
 import { throwIfAborted, isCancellation } from "../../shared/requests";
 import { ApiError, api, downloadBlob } from "../../shared/http";
 import { TERMINAL, type OcrJob, type OcrPageResult } from "../../shared/types";
-import { cancelOcrJob, exportJob, getOcrJob, listPages, settleJob, startOcrJob } from "./ocrApi";
+import { cancelOcrJob, exportJob, getOcrJob, hostCapabilities, listPages, settleJob, startOcrJob } from "./ocrApi";
 import { parsePageRange } from "./pageRange";
 
 interface Props {
@@ -28,6 +28,20 @@ export default function OcrPanel({ jobId, onJobChange }: Props) {
   const [partial, setPartial] = useState(false);
   const [coordinates, setCoordinates] = useState(true);
   const [fileName, setFileName] = useState("ocr");
+  const [mounted, setMounted] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    hostCapabilities()
+      .then((cap) => {
+        if (alive) setMounted((cap as { mounted?: boolean }).mounted !== false);
+      })
+      .catch(() => {
+        if (alive) setMounted(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [fileId]);
   const settled = useRef(new Set<string>());
   const manual = useRef(new AbortController());
   useEffect(()=>{manual.current=new AbortController();return()=>manual.current.abort();},[fileId,jobId]);
@@ -103,9 +117,14 @@ export default function OcrPanel({ jobId, onJobChange }: Props) {
   }
   return <div className="card">
     <h3>OCR 识别</h3>
+    {mounted === false && (
+      <p className="error" role="alert">
+        OCR 服务未挂载：请先启动 OCR worker，并确认与主系统同库同存储后再刷新本页。
+      </p>
+    )}
     {editor && <div>
-      <label>识别页码<input placeholder="留空为全部，例如 1-3,5" value={range} onChange={(e) => setRange(e.target.value)} disabled={busy || active} /></label>
-      <button disabled={busy || active || !fileId || (!!jobId && !job)} onClick={() => void create()}>{jobId ? "新建识别任务" : "开始识别"}</button>
+      <label>识别页码<input placeholder="留空为全部，例如 1-3,5" value={range} onChange={(e) => setRange(e.target.value)} disabled={busy || active || mounted === false} /></label>
+      <button disabled={busy || active || !fileId || mounted === false || (!!jobId && !job)} onClick={() => void create()}>{jobId ? "新建识别任务" : "开始识别"}</button>
     </div>}
     {!jobId && <p className="muted">该文件尚无识别任务。</p>}
     {jobId && <>
