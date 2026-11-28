@@ -7,11 +7,10 @@
 
 | 目录 | 内容 |
 |---|---|
-| [`requirements/`](requirements/) | 需求阶段交付物：需求分析文档（Markdown / Word）与一致性审查报告 |
+| [`requirements/`](requirements/) | 需求阶段交付物：需求分析文档（Markdown / Word） |
 | [`design/`](design/) | 设计阶段交付物：系统设计文档（Markdown / Word）、界面原型设计 |
 | [`design/V2.0/`](design/V2.0/README.md) | **V2.0 裁剪后基线**（当前实施口径）：01 需求分析 ~ 09 裁剪说明共 9 篇 + 索引 |
 | [`testing/`](testing/) | 软件测试文档（Word 正稿）；测试素材在仓库根 [`test_materials/`](../test_materials/README.md) |
-| [`qa/`](qa/) | 仅留被《需求分析文档》正文引用的两份审查报告（证据留存） |
 | [`media/`](media/) | UML、E-R、状态图等建模成图（20 张 PNG） |
 | [`prototype/`](prototype/index.html) | 单文件高保真 HTML 界面原型；截图原件在仓库根 `prototype_img/` |
 | [`team/`](team/) | 各端开发指南（环境配置、后端、前端、数据库） |
@@ -69,8 +68,6 @@
 | [`team/backend.md`](team/backend.md) | 三条功能线分工、跨线接口清单 |
 | [`team/frontend.md`](team/frontend.md) | 前端目录、HTTP 约定、坐标口径 |
 | [`team/database.md`](team/database.md) | 表所有权、schema 冻结规则 |
-| [`测试审查报告/最小必须功能集实现状态_20261119.md`](测试审查报告/最小必须功能集实现状态_20261119.md) | 裁剪后各功能实现状态的定档依据 |
-| [`测试审查报告/功能分层与裁剪建议_20261119.md`](测试审查报告/功能分层与裁剪建议_20261119.md) | 分层与裁剪的判定依据 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 分支、PR 与评审流程 |
 
 > 文档更新规则：阶段交付物的源文件为 Markdown，Word 正稿由 `scripts/export_*_docx.py` 与 `scripts/build_test_document.py` 生成；技术参考文档随代码变更同步更新。

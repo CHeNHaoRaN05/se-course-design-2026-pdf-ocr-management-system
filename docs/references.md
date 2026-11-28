@@ -25,7 +25,6 @@
 | [`development-baseline.md`](development-baseline.md) | 公共限制、优先级、验收标准 |
 | [`team/`](team/) | 各端开发指南 |
 | [`media/`](media/) | UML 与 E-R 成图 |
-| [`qa/`](qa/) | 测试审查与复测报告 |
 
 ## 标准与外部资料
 

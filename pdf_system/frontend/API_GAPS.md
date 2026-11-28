@@ -11,7 +11,7 @@
 - share：相对有效期，拒绝无时区绝对时间；可见提取码、原子访问计数、单进程限速与访问审计。
 - search：类型过滤、关键词长度与空白建议校验。
 
-准确结构见 [生成契约](../../docs/api-contract.yaml)、[复测增量](../../docs/reviews/02-retest-contract.md)、[逐项结论](../../docs/reviews/02-retest-resolution.md)。
+准确结构以 [生成契约](../../docs/api-contract.yaml) 为准。
 
 ## 仍需专项完成
 

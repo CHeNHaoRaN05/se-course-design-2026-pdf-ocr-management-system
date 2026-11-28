@@ -2,7 +2,7 @@
 
 当前修复基线：已推送的 `613be22`，远端 main `8cf647f`。用户复测报告记录前次 CI 在 2026-11-11 08:13:54 UTC 成功。本轮是此后的增量修复，尚未推送；维护者评审与 PR 合并未由本任务代为完成。
 
-[复测逐项结论](../../docs/reviews/02-retest-resolution.md) · [复测契约](../../docs/reviews/02-retest-contract.md) · [生成的 OpenAPI](../../docs/api-contract.yaml) · [验证记录](docs/VALIDATION.md)
+[生成的 OpenAPI](../../docs/api-contract.yaml) · [验证记录](docs/VALIDATION.md)
 
 ## 启动
 

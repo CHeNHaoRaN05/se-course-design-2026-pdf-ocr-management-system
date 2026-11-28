@@ -617,8 +617,8 @@ def build(pages: dict[str, int] | None = None, toc_entries=None, save: bool = Tr
     table(doc, ["编号", "文件", "版本/位置"], [
         ("R1", "需求分析文档", "V1.1，docs/requirements/"),
         ("R2", "系统设计文档", "V2.0，docs/design/"),
-        ("R3", "最小必须功能集实现状态", "2026-11-19，docs/测试审查报告/"),
-        ("R4", "功能分层与裁剪建议", "2026-11-19，docs/测试审查报告/"),
+        ("R3", "V2.0 裁剪说明", "docs/design/V2.0/09_裁剪说明.md"),
+        ("R4", "V2.0 需求分析与验收口径", "docs/design/V2.0/01_需求分析.md"),
         ("R5", "接口契约", "docs/api-contract.yaml"),
         ("R6", "开发基线与验收", "docs/development-baseline.md"),
     ], [1.6, 7.4, 7.2], font=9)
