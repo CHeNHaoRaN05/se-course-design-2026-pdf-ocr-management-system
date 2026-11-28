@@ -122,6 +122,7 @@ htmlcov/
 _docx_tmp/
 _ppt_tmp/
 docx_edit/
+_test_docx_render*/
 _out/
 _qa*/
 docs/testing/_drafts/
